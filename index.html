@@ -1,0 +1,1391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Dino Jump - Ultimate Edition</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Arial', sans-serif; 
+            overflow: hidden; 
+            background: #111;
+            height: 100vh;
+            cursor: default;
+        }
+        
+        /* Game UI */
+        #game-ui {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.7) 50%, transparent 100%);
+            color: white;
+            z-index: 1000;
+            pointer-events: none;
+        }
+        
+        .score-board {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        #score {
+            font-size: 36px;
+            font-weight: bold;
+            color: #4CAF50;
+            text-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+        }
+        
+        #high-score {
+            font-size: 20px;
+            color: #FFC107;
+        }
+        
+        .game-title {
+            text-align: center;
+            font-size: 24px;
+            color: #00BCD4;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(0, 188, 212, 0.5);
+        }
+        
+        /* Controls - теперь поверх всей сцены */
+        #game-controls {
+            position: fixed;
+            bottom: 20px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            z-index: 1000;
+            pointer-events: auto;
+        }
+        
+        .control-btn {
+            padding: 15px 25px;
+            background: linear-gradient(45deg, #2196F3, #1976D2);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 15px rgba(33, 150, 243, 0.4);
+            min-width: 160px;
+        }
+        
+        .control-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(33, 150, 243, 0.6);
+        }
+        
+        .control-btn:active {
+            transform: translateY(1px);
+        }
+        
+        .control-btn.jump {
+            background: linear-gradient(45deg, #4CAF50, #2E7D32);
+        }
+        
+        .control-btn.switch {
+            background: linear-gradient(45deg, #FF9800, #EF6C00);
+        }
+        
+        .control-btn.mode {
+            background: linear-gradient(45deg, #9C27B0, #7B1FA2);
+        }
+        
+        .control-btn.reset {
+            background: linear-gradient(45deg, #F44336, #C62828);
+        }
+        
+        /* Game Message */
+        #game-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+            z-index: 2000;
+            display: none;
+            border: 3px solid #2196F3;
+            box-shadow: 0 0 30px rgba(33, 150, 243, 0.5);
+            min-width: 300px;
+        }
+        
+        #game-message h2 {
+            color: #FF5722;
+            margin-bottom: 15px;
+            font-size: 28px;
+        }
+        
+        #game-message p {
+            margin: 10px 0;
+            font-size: 18px;
+        }
+        
+        /* Loading Screen */
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #111;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 3000;
+            color: white;
+        }
+        
+        .loader {
+            width: 80px;
+            height: 80px;
+            border: 8px solid #333;
+            border-top: 8px solid #2196F3;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Camera Controls */
+        #camera-controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            pointer-events: auto;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 10px;
+        }
+        
+        .camera-btn {
+            width: 50px;
+            height: 50px;
+            margin: 5px;
+            border-radius: 50%;
+            background: rgba(33, 150, 243, 0.8);
+            color: white;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            display: block;
+        }
+        
+        /* Mobile Controls */
+        #mobile-controls {
+            position: fixed;
+            bottom: 150px;
+            width: 100%;
+            display: none;
+            justify-content: space-around;
+            z-index: 1000;
+            pointer-events: auto;
+        }
+        
+        .mobile-joystick {
+            width: 120px;
+            height: 120px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .joystick-inner {
+            width: 60px;
+            height: 60px;
+            background: rgba(33, 150, 243, 0.7);
+            border-radius: 50%;
+        }
+        
+        /* Scene */
+        a-scene {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+    </style>
+    
+    <!-- A-Frame -->
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <!-- AR.js -->
+    <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@master/aframe/build/aframe-ar.js"></script>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+        <div class="loader"></div>
+        <h2>Loading Dino Jump...</h2>
+        <p id="loading-text">Initializing game engine</p>
+    </div>
+    
+    <!-- Game UI -->
+    <div id="game-ui">
+        <div class="score-board">
+            <div id="score">SCORE: 0</div>
+            <div id="high-score">HIGH: 0</div>
+        </div>
+        <div class="game-title">🦖 DINO JUMP 🐱</div>
+    </div>
+    
+    <!-- Camera Controls (3D Mode Only) -->
+    <div id="camera-controls" style="display: none;">
+        <button class="camera-btn" onclick="window.game.setCameraView('front')">👁️</button>
+        <button class="camera-btn" onclick="window.game.setCameraView('side')">👈</button>
+        <button class="camera-btn" onclick="window.game.setCameraView('top')">⬇️</button>
+        <button class="camera-btn" onclick="window.game.setCameraView('follow')">🎥</button>
+    </div>
+    
+    <!-- Mobile Controls (Touch Devices) -->
+    <div id="mobile-controls">
+        <div class="mobile-joystick" id="left-joystick">
+            <div class="joystick-inner"></div>
+        </div>
+        <div class="mobile-joystick" id="right-joystick">
+            <div class="joystick-inner"></div>
+        </div>
+    </div>
+    
+    <!-- Game Controls -->
+    <div id="game-controls">
+        <button class="control-btn jump" id="jump-btn">JUMP (SPACE)</button>
+        <button class="control-btn switch" id="switch-btn">SWITCH CAT/DINO (S)</button>
+        <button class="control-btn mode" id="mode-btn">3D MODE</button>
+        <button class="control-btn reset" id="reset-btn">RESET (R)</button>
+    </div>
+    
+    <!-- Game Message Popup -->
+    <div id="game-message">
+        <h2 id="message-title">Game Over!</h2>
+        <p id="message-text">Your score: 0</p>
+        <p>Press SPACE to restart</p>
+    </div>
+
+    <!-- 3D GAME SCENE -->
+    <a-scene id="scene-3d" embedded vr-mode-ui="enabled: false" physics="debug: false">
+        <!-- Assets -->
+        <a-assets timeout="60000">
+            <a-asset-item id="dino-model" src="assets/tyrannosaurus_rex_rig/dino.gltf"></a-asset-item>
+            <a-asset-item id="cat-model" src="assets/oiiaioooooiai_cat/cat.gltf"></a-asset-item>
+        </a-assets>
+        
+        <!-- Game Environment -->
+        <a-entity id="game-environment">
+            <!-- Sky -->
+            <a-sky color="#87CEEB"></a-sky>
+            
+            <!-- Ground -->
+            <a-entity position="0 0 0">
+                <!-- Main ground -->
+                <a-plane position="0 0 -20" width="50" height="200" rotation="-90 0 0"
+                         material="color: #228B22; roughness: 1; src: https://cdn.aframe.io/a-painter/images/floor.jpg; repeat: 50 100">
+                </a-plane>
+                
+                <!-- Road markings -->
+                <a-entity position="0 0.01 -20">
+                    <a-plane position="0 0 0" width="3" height="200" rotation="-90 0 0"
+                             material="color: #FFD700; opacity: 0.3; transparent: true">
+                    </a-plane>
+                    <a-plane position="1.5 0 0" width="0.2" height="200" rotation="-90 0 0"
+                             material="color: white; opacity: 0.5; transparent: true">
+                    </a-plane>
+                    <a-plane position="-1.5 0 0" width="0.2" height="200" rotation="-90 0 0"
+                             material="color: white; opacity: 0.5; transparent: true">
+                    </a-plane>
+                </a-entity>
+            </a-entity>
+            
+            <!-- Player Container -->
+            <a-entity id="player-container" position="0 0.5 -5">
+                <!-- Dino -->
+                <a-entity id="dino" gltf-model="#dino-model" position="0 0 0" scale="0.5 0.5 0.5" visible="true"
+                         animation="property: position; to: 0 0.2 0; dir: alternate; dur: 500; easing: easeInOutSine; loop: true">
+                </a-entity>
+                
+                <!-- Cat -->
+                <a-entity id="cat" gltf-model="#cat-model" position="0 0 0" scale="0.3 0.3 0.3" visible="false"
+                         animation="property: rotation; to: 0 360 0; dur: 3000; loop: true; easing: linear">
+                </a-entity>
+            </a-entity>
+            
+            <!-- Obstacles Container -->
+            <a-entity id="obstacles-container"></a-entity>
+            
+            <!-- Coins Container -->
+            <a-entity id="coins-container"></a-entity>
+            
+            <!-- Background Elements -->
+            <a-entity id="background-elements"></a-entity>
+            
+            <!-- Lighting -->
+            <a-entity light="type: ambient; color: #88C; intensity: 0.4"></a-entity>
+            <a-entity light="type: directional; color: #FFDDAE; intensity: 0.8" position="5 20 15" cast-shadow></a-entity>
+            <a-entity light="type: hemisphere; color: #87CEEB; groundColor: #228B22; intensity: 0.6"></a-entity>
+        </a-entity>
+        
+        <!-- Camera System -->
+        <a-entity id="main-camera" camera="fov: 70" position="0 3 5" look-controls="enabled: true">
+            <a-entity position="0 0 -3" 
+                     animation="property: rotation; to: 0 360 0; dur: 60000; loop: true; easing: linear">
+            </a-entity>
+        </a-entity>
+    </a-scene>
+    
+    <!-- AR GAME SCENE -->
+    <a-scene id="scene-ar" style="display: none;" embedded vr-mode-ui="enabled: false"
+             arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;">
+        
+        <a-assets timeout="60000">
+            <a-asset-item id="dino-model-ar" src="assets/tyrannosaurus_rex_rig/dino.gltf"></a-asset-item>
+            <a-asset-item id="cat-model-ar" src="assets/oiiaioooooiai_cat/cat.gltf"></a-asset-item>
+        </a-assets>
+        
+        <!-- AR Marker -->
+        <a-marker preset="hiro" emitevents="true" smooth="true">
+            <!-- AR Game World -->
+            <a-entity id="ar-world" position="0 0 0">
+                <!-- AR Player -->
+                <a-entity id="ar-player" position="0 0.2 0" scale="0.1 0.1 0.1">
+                    <a-entity id="dino-ar" gltf-model="#dino-model-ar" visible="true"></a-entity>
+                    <a-entity id="cat-ar" gltf-model="#cat-model-ar" visible="false"></a-entity>
+                </a-entity>
+                
+                <!-- AR Ground -->
+                <a-plane position="0 0 0" width="2" height="2" rotation="-90 0 0"
+                         material="color: #4CAF50; opacity: 0.7; transparent: true">
+                </a-plane>
+                
+                <!-- AR Obstacles -->
+                <a-entity id="ar-obstacles"></a-entity>
+                
+                <!-- AR Coins -->
+                <a-entity id="ar-coins"></a-entity>
+            </a-entity>
+        </a-marker>
+        
+        <!-- AR Camera -->
+        <a-entity camera></a-entity>
+    </a-scene>
+
+    <script>
+        // ==================== ULTIMATE DINO JUMP GAME ====================
+        
+        class UltimateDinoGame {
+            constructor() {
+                // game state
+                this.score = 0;
+                this.highScore = parseInt(localStorage.getItem('dinoHighScore')) || 0;
+                this.gameSpeed = 1.0;
+                this.isPlaying = false;
+                this.isJumping = false;
+                this.currentCharacter = 'dino';
+                this.currentMode = '3d';
+                this.gameOver = false;
+                this.cameraView = 'follow';
+                
+                // game objects
+                this.player = null;
+                this.obstacles = [];
+                this.coins = [];
+                this.gameLoopId = null;
+                this.obstacleTimer = null;
+                this.coinTimer = null;
+                
+                // Physics!
+                this.playerY = 0;
+                this.playerVelocityY = 0;
+                this.gravity = -0.02;
+                this.jumpForce = 0.5;
+                this.isOnGround = true;
+                
+                // DOM Elements
+                this.loadingScreen = document.getElementById('loading-screen');
+                this.loadingText = document.getElementById('loading-text');
+                this.scoreElement = document.getElementById('score');
+                this.highScoreElement = document.getElementById('high-score');
+                this.gameMessage = document.getElementById('game-message');
+                this.messageTitle = document.getElementById('message-title');
+                this.messageText = document.getElementById('message-text');
+                this.cameraControls = document.getElementById('camera-controls');
+                this.mobileControls = document.getElementById('mobile-controls');
+                this.modeBtn = document.getElementById('mode-btn');
+                
+                // initialize
+                this.init();
+            }
+            
+            async init() {
+                console.log('🎮 Initializing Ultimate Dino Game...');
+                
+                // upd UI
+                this.updateHighScore();
+                
+                // check device type
+                this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                if (this.isMobile) {
+                    this.mobileControls.style.display = 'flex';
+                }
+                
+                // setup event listeners
+                this.setupEventListeners();
+                
+                // load models with fallback
+                await this.loadModels();
+                
+                // start in 3D mode
+                this.switchMode('3d');
+                
+                // hide loading screen
+                setTimeout(() => {
+                    this.loadingScreen.style.display = 'none';
+                    this.showMessage('DINO JUMP', 'Press SPACE to jump, S to switch character', false);
+                }, 1000);
+            }
+            
+            async loadModels() {
+                this.loadingText.textContent = 'Loading 3D models...';
+                
+                const models = [
+                    { path: 'assets/tyrannosaurus_rex_rig/dino.gltf', id: 'dino' },
+                    { path: 'assets/oiiaioooooiai_cat/cat.gltf', id: 'cat' }
+                ];
+                
+                let loaded = 0;
+                
+                for (const model of models) {
+                    try {
+                        const response = await fetch(model.path);
+                        if (!response.ok) throw new Error(`Failed to load: ${model.id}`);
+                        loaded++;
+                        this.loadingText.textContent = `Loaded ${model.id} model (${loaded}/2)...`;
+                        console.log(`✅ ${model.id} model loaded`);
+                    } catch (error) {
+                        console.warn(`⚠️ ${model.id} model not found, will use fallback`);
+                        this.setupFallbackModel(model.id);
+                    }
+                    await this.delay(500);
+                }
+                
+                this.loadingText.textContent = 'Setting up game world...';
+            }
+            
+            setupFallbackModel(modelId) {
+                // setup fallback for 3d scene
+                const dino3d = document.getElementById('dino');
+                const cat3d = document.getElementById('cat');
+                
+                if (modelId === 'dino' && dino3d) {
+                    dino3d.setAttribute('geometry', 'primitive: box; width: 0.4; height: 0.8; depth: 0.4');
+                    dino3d.setAttribute('material', 'color: #4CAF50; roughness: 0.5');
+                    dino3d.setAttribute('scale', '0.8 0.8 0.8');
+                }
+                
+                if (modelId === 'cat' && cat3d) {
+                    cat3d.setAttribute('geometry', 'primitive: sphere; radius: 0.3');
+                    cat3d.setAttribute('material', 'color: #FF9800; roughness: 0.7');
+                }
+                
+                // setup fallback for AR scene
+                const dinoAr = document.getElementById('dino-ar');
+                const catAr = document.getElementById('cat-ar');
+                
+                if (modelId === 'dino' && dinoAr) {
+                    dinoAr.setAttribute('geometry', 'primitive: box; width: 0.4; height: 0.8; depth: 0.4');
+                    dinoAr.setAttribute('material', 'color: #4CAF50');
+                }
+                
+                if (modelId === 'cat' && catAr) {
+                    catAr.setAttribute('geometry', 'primitive: sphere; radius: 0.2');
+                    catAr.setAttribute('material', 'color: #FF9800');
+                }
+            }
+            
+            setupEventListeners() {
+                // button listeners
+                document.getElementById('jump-btn').addEventListener('click', () => this.jump());
+                document.getElementById('switch-btn').addEventListener('click', () => this.switchCharacter());
+                this.modeBtn.addEventListener('click', () => this.toggleMode());
+                document.getElementById('reset-btn').addEventListener('click', () => this.resetGame());
+                
+                // keyboard controls
+                document.addEventListener('keydown', (e) => {
+                    if (this.gameOver && e.key === ' ') {
+                        this.restartGame();
+                        return;
+                    }
+                    
+                    switch(e.key.toLowerCase()) {
+                        case ' ':
+                            e.preventDefault();
+                            this.jump();
+                            break;
+                        case 's':
+                            this.switchCharacter();
+                            break;
+                        case 'r':
+                            this.resetGame();
+                            break;
+                        case '1': this.setCameraView('front'); break;
+                        case '2': this.setCameraView('side'); break;
+                        case '3': this.setCameraView('top'); break;
+                        case '4': this.setCameraView('follow'); break;
+                    }
+                });
+                
+                // mobile touch controls
+                if (this.isMobile) {
+                    document.addEventListener('touchstart', (e) => {
+                        e.preventDefault();
+                        if (!this.isPlaying) {
+                            this.startGame();
+                        }
+                    });
+                    
+                    document.addEventListener('touchend', (e) => {
+                        e.preventDefault();
+                        this.jump();
+                    });
+                }
+                
+                // prevent context menu
+                document.addEventListener('contextmenu', (e) => e.preventDefault());
+            }
+            
+            toggleMode() {
+                if (this.currentMode === '3d') {
+                    this.switchMode('ar');
+                } else {
+                    this.switchMode('3d');
+                }
+            }
+            
+            async switchMode(mode) {
+                console.log(`Switching to ${mode} mode`);
+                
+                // stop current game
+                this.pauseGame();
+                
+                // hide all scenes
+                document.getElementById('scene-3d').style.display = 'none';
+                document.getElementById('scene-ar').style.display = 'none';
+                this.cameraControls.style.display = 'none';
+                
+                this.currentMode = mode;
+                
+                if (mode === '3d') {
+                    // show 3d scene
+                    document.getElementById('scene-3d').style.display = 'block';
+                    this.cameraControls.style.display = 'block';
+                    this.modeBtn.textContent = 'AR MODE';
+                    
+                    // setup 3d game
+                    this.setup3DGame();
+                    
+                } else {
+                    // AR scene
+                    try {
+                        this.showMessage('AR Mode', 'Requesting camera access...', false);
+                        
+                        // request camera permission
+                        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                            throw new Error('Camera not supported');
+                        }
+                        
+                        const stream = await navigator.mediaDevices.getUserMedia({ 
+                            video: { facingMode: 'environment' }
+                        });
+                        
+                        stream.getTracks().forEach(track => track.stop());
+                        
+                        document.getElementById('scene-ar').style.display = 'block';
+                        this.modeBtn.textContent = '3D MODE';
+                        
+                        // setup AR game
+                        this.setupARGame();
+                        
+                        this.showMessage('AR Ready', 'Point camera at Hiro marker', true);
+                        
+                    } catch (error) {
+                        console.error('AR Mode failed:', error);
+                        this.showMessage('AR Failed', 'Switching to 3D mode', true);
+                        setTimeout(() => this.switchMode('3d'), 2000);
+                    }
+                }
+                
+                // start game
+                this.startGame();
+            }
+            
+            setup3DGame() {
+                console.log('Setting up 3D game...');
+                
+                // get player container
+                this.player = document.getElementById('player-container');
+                this.playerY = 0.5;
+                this.player.setAttribute('position', `0 ${this.playerY} -5`);
+                
+                // clear game objects
+                this.clearGameObjects();
+                
+                // generate initial obstacles and coins
+                this.generateObstacles(5);
+                this.generateCoins(3);
+                
+                // generate background
+                this.generateBackground();
+                
+                // set initial camera view
+                this.setCameraView('follow');
+            }
+            
+            setupARGame() {
+                console.log('Setting up AR game...');
+                
+                // get AR marker
+                const marker = document.querySelector('a-marker');
+                if (!marker) {
+                    console.error('AR Marker not found');
+                    return;
+                }
+                
+                // marker!!!
+                marker.addEventListener('markerFound', () => {
+                    console.log('🎯 Marker detected!');
+                    this.showMessage('Game Started!', 'Tap screen to jump', true);
+                    
+                    // setup
+                    this.player = document.getElementById('ar-player');
+                    this.playerY = 0.2;
+                    
+                    // clear AR objects
+                    this.clearARObjects();
+                    
+                    // generating objects
+                    this.startARGeneration();
+                    
+                    if (!this.isPlaying) {
+                        this.startGame();
+                    }
+                });
+                
+                marker.addEventListener('markerLost', () => {
+                    console.log('❌ Marker lost');
+                    this.showMessage('Marker Lost', 'Point camera at Hiro marker', false);
+                    this.pauseGame();
+                });
+                
+                // tap to jump in AR
+                document.addEventListener('click', (e) => {
+                    if (this.currentMode === 'ar' && this.isPlaying && !e.target.closest('#game-controls')) {
+                        this.jump();
+                    }
+                });
+            }
+            
+            startGame() {
+                if (this.isPlaying) return;
+                
+                console.log('🚀 Starting game!');
+                
+                this.isPlaying = true;
+                this.gameOver = false;
+                this.score = 0;
+                this.gameSpeed = 1.0;
+                this.updateScore();
+                
+                this.gameMessage.style.display = 'none';
+
+                this.gameLoop();
+                
+                // object generation
+                if (this.currentMode === '3d') {
+                    this.startObjectGeneration();
+                }
+            }
+            
+            pauseGame() {
+                this.isPlaying = false;
+                
+                if (this.gameLoopId) {
+                    cancelAnimationFrame(this.gameLoopId);
+                    this.gameLoopId = null;
+                }
+                
+                if (this.obstacleTimer) {
+                    clearInterval(this.obstacleTimer);
+                    this.obstacleTimer = null;
+                }
+                
+                if (this.coinTimer) {
+                    clearInterval(this.coinTimer);
+                    this.coinTimer = null;
+                }
+            }
+            
+            gameLoop() {
+                if (!this.isPlaying) return;
+                this.updatePhysics();
+                this.updateObjects();
+                this.checkCollisions();
+                
+                // increase difficulty
+                this.gameSpeed += 0.0001;
+                
+                // continue loop
+                this.gameLoopId = requestAnimationFrame(() => this.gameLoop());
+            }
+            
+            updatePhysics() {
+                if (!this.player) return;
+                
+                // gravity
+                if (!this.isOnGround) {
+                    this.playerVelocityY += this.gravity;
+                    this.playerY += this.playerVelocityY;
+                    
+                    // ground collision
+                    if (this.playerY <= 0.5) {
+                        this.playerY = 0.5;
+                        this.playerVelocityY = 0;
+                        this.isOnGround = true;
+                        this.isJumping = false;
+                    }
+                }
+                
+                // update player position
+                if (this.currentMode === '3d') {
+                    this.player.setAttribute('position', `0 ${this.playerY} -5`);
+                } else {
+                    this.player.setAttribute('position', `0 ${this.playerY} 0`);
+                }
+            }
+            
+            updateObjects() {
+                // move obstacles
+                this.obstacles.forEach((obstacle, index) => {
+                    if (!obstacle || !obstacle.object3D) return;
+                    
+                    let pos = obstacle.object3D.position;
+                    
+                    if (this.currentMode === '3d') {
+                        // move toward player in 3d
+                        pos.z += 0.1 * this.gameSpeed;
+                        
+                        // remove if past player
+                        if (pos.z > 5) {
+                            this.removeObstacle(index);
+                            this.addScore(10); // bonus for avoiding
+                        }
+                    } else {
+                        // move in AR
+                        pos.x -= 0.05 * this.gameSpeed;
+                        
+                        // remove if too far
+                        if (pos.x < -1) {
+                            this.removeObstacle(index);
+                            this.addScore(10);
+                        }
+                    }
+                });
+                
+                // move coins
+                this.coins.forEach((coin, index) => {
+                    if (!coin || !coin.object3D) return;
+                    
+                    let pos = coin.object3D.position;
+                    
+                    if (this.currentMode === '3d') {
+                        pos.z += 0.1 * this.gameSpeed;
+                        
+                        if (pos.z > 5) {
+                            this.removeCoin(index);
+                        }
+                    } else {
+                        pos.x -= 0.05 * this.gameSpeed;
+                        
+                        if (pos.x < -1) {
+                            this.removeCoin(index);
+                        }
+                    }
+                    
+                    // rotate coin
+                    coin.object3D.rotation.y += 0.1;
+                });
+            }
+            
+            checkCollisions() {
+                if (!this.player || !this.player.object3D || this.gameOver) return;
+                
+                const playerPos = this.player.object3D.position;
+                const playerRadius = this.currentMode === '3d' ? 0.3 : 0.1;
+                
+                // check obstacle collisions
+                this.obstacles.forEach((obstacle, index) => {
+                    if (!obstacle || !obstacle.object3D) return;
+                    
+                    const obstaclePos = obstacle.object3D.position;
+                    const obstacleRadius = this.currentMode === '3d' ? 0.2 : 0.08;
+                    
+                    // calculate distance
+                    let distance;
+                    if (this.currentMode === '3d') {
+                        distance = Math.sqrt(
+                            Math.pow(playerPos.x - obstaclePos.x, 2) +
+                            Math.pow(playerPos.z - obstaclePos.z, 2)
+                        );
+                    } else {
+                        distance = Math.sqrt(
+                            Math.pow(playerPos.x - obstaclePos.x, 2) +
+                            Math.pow(playerPos.z - obstaclePos.z, 2)
+                        );
+                    }
+                    
+                    // check if collision occurred
+                    // player must be on ground (not jumping over) to collide
+                    if (distance < (playerRadius + obstacleRadius) && this.isOnGround) {
+                        console.log('💥 COLLISION DETECTED!');
+                        this.endGame();
+                    }
+                });
+                
+                // check coin collections
+                this.coins.forEach((coin, index) => {
+                    if (!coin || !coin.object3D) return;
+                    
+                    const coinPos = coin.object3D.position;
+                    const coinRadius = this.currentMode === '3d' ? 0.2 : 0.05;
+                    
+                    let distance;
+                    if (this.currentMode === '3d') {
+                        distance = Math.sqrt(
+                            Math.pow(playerPos.x - coinPos.x, 2) +
+                            Math.pow(playerPos.z - coinPos.z, 2)
+                        );
+                    } else {
+                        distance = Math.sqrt(
+                            Math.pow(playerPos.x - coinPos.x, 2) +
+                            Math.pow(playerPos.z - coinPos.z, 2)
+                        );
+                    }
+                    
+                    if (distance < (playerRadius + coinRadius)) {
+                        console.log('💰 COIN COLLECTED!');
+                        this.collectCoin(index);
+                    }
+                });
+            }
+            
+            jump() {
+                if (!this.isPlaying || this.gameOver || !this.isOnGround) return;
+                
+                console.log('JUMP!');
+                
+                this.isJumping = true;
+                this.isOnGround = false;
+                this.playerVelocityY = this.jumpForce;
+                
+                // visual feedback
+                if (this.currentMode === '3d') {
+                    const dino = document.getElementById('dino');
+                    if (dino && this.currentCharacter === 'dino') {
+                        dino.setAttribute('scale', '0.55 0.55 0.55');
+                        setTimeout(() => dino.setAttribute('scale', '0.5 0.5 0.5'), 200);
+                    }
+                }
+            }
+            
+            switchCharacter() {
+                if (!this.isPlaying || this.gameOver) return;
+                
+                console.log('Switching character...');
+                
+                if (this.currentMode === '3d') {
+                    const dino = document.getElementById('dino');
+                    const cat = document.getElementById('cat');
+                    
+                    if (this.currentCharacter === 'dino') {
+                        // switch to cat
+                        dino.setAttribute('visible', 'false');
+                        cat.setAttribute('visible', 'true');
+                        this.currentCharacter = 'cat';
+                        
+                        // auto switch back after 3 seconds
+                        // but this auto switch may be unuseful
+                        setTimeout(() => {
+                            if (this.currentCharacter === 'cat' && this.isPlaying) {
+                                this.switchCharacter();
+                            }
+                        }, 3000);
+                        
+                    } else {
+                        // switch back to dino
+                        cat.setAttribute('visible', 'false');
+                        dino.setAttribute('visible', 'true');
+                        this.currentCharacter = 'dino';
+                    }
+                    
+                } else {
+                    // AR mode
+                    const dino = document.getElementById('dino-ar');
+                    const cat = document.getElementById('cat-ar');
+                    
+                    if (this.currentCharacter === 'dino') {
+                        dino.setAttribute('visible', 'false');
+                        cat.setAttribute('visible', 'true');
+                        this.currentCharacter = 'cat';
+                        
+                        setTimeout(() => {
+                            if (this.currentCharacter === 'cat' && this.isPlaying) {
+                                this.switchCharacter();
+                            }
+                        }, 3000);
+                        
+                    } else {
+                        cat.setAttribute('visible', 'false');
+                        dino.setAttribute('visible', 'true');
+                        this.currentCharacter = 'dino';
+                    }
+                }
+                
+                // bonus points for switching
+                this.addScore(50);
+            }
+            
+            generateObstacles(count) {
+                const container = this.currentMode === '3d' ? 
+                    document.getElementById('obstacles-container') : 
+                    document.getElementById('ar-obstacles');
+                
+                if (!container) return;
+                
+                // clear existing
+                while (container.firstChild) {
+                    container.removeChild(container.firstChild);
+                }
+                this.obstacles = [];
+                
+                // obstacles
+                for (let i = 0; i < count; i++) {
+                    this.createObstacle(i);
+                }
+            }
+            
+            createObstacle(index) {
+                const container = this.currentMode === '3d' ? 
+                    document.getElementById('obstacles-container') : 
+                    document.getElementById('ar-obstacles');
+                
+                if (!container) return null;
+                
+                const obstacle = document.createElement('a-entity');
+                const obstacleId = `obstacle-${Date.now()}-${index}`;
+                
+                // random position
+                let x, y, z;
+                
+                if (this.currentMode === '3d') {
+                    x = (Math.random() - 0.5) * 4; // -2 to 2
+                    y = 0.3;
+                    z = -15 - (index * 5);
+                } else {
+                    x = 0.8 + (Math.random() * 0.4);
+                    y = 0.1;
+                    z = (Math.random() - 0.5) * 0.5;
+                }
+                
+                // random type
+                const types = [
+                    { shape: 'box', color: '#8B4513', size: '0.4 0.6 0.4' },
+                    { shape: 'cylinder', color: '#A0522D', size: '0.3 0.8 0.3' },
+                    { shape: 'cone', color: '#D2691E', size: '0.35 0.7 0.35' }
+                ];
+                
+                const type = types[Math.floor(Math.random() * types.length)];
+                
+                obstacle.setAttribute('id', obstacleId);
+                obstacle.setAttribute('geometry', `primitive: ${type.shape}`);
+                obstacle.setAttribute('material', `color: ${type.color}; roughness: 1`);
+                obstacle.setAttribute('scale', type.size);
+                obstacle.setAttribute('position', `${x} ${y} ${z}`);
+                obstacle.setAttribute('class', 'obstacle');
+                
+                // rotation
+                obstacle.setAttribute('animation', {
+                    property: 'rotation',
+                    to: '0 360 0',
+                    dur: 2000 + Math.random() * 3000,
+                    loop: true,
+                    easing: 'linear'
+                });
+                
+                container.appendChild(obstacle);
+                this.obstacles.push(obstacle);
+                
+                return obstacle;
+            }
+            
+            generateCoins(count) {
+                const container = this.currentMode === '3d' ? 
+                    document.getElementById('coins-container') : 
+                    document.getElementById('ar-coins');
+                
+                if (!container) return;
+                
+                // clear existing
+                while (container.firstChild) {
+                    container.removeChild(container.firstChild);
+                }
+                this.coins = [];
+                
+                // coins
+                for (let i = 0; i < count; i++) {
+                    this.createCoin(i);
+                }
+            }
+            
+            createCoin(index) {
+                const container = this.currentMode === '3d' ? 
+                    document.getElementById('coins-container') : 
+                    document.getElementById('ar-coins');
+                
+                if (!container) return null;
+                
+                const coin = document.createElement('a-entity');
+                const coinId = `coin-${Date.now()}-${index}`;
+                
+                // random position
+                let x, y, z;
+                
+                if (this.currentMode === '3d') {
+                    x = (Math.random() - 0.5) * 3;
+                    y = 1.2 + Math.random() * 0.8;
+                    z = -12 - (index * 6);
+                } else {
+                    x = 0.6 + (Math.random() * 0.3);
+                    y = 0.3 + Math.random() * 0.2;
+                    z = (Math.random() - 0.5) * 0.3;
+                }
+                
+                coin.setAttribute('id', coinId);
+                coin.setAttribute('geometry', 'primitive: cylinder; radius: 0.15; height: 0.05');
+                coin.setAttribute('material', 'color: #FFD700; metalness: 1; roughness: 0.2');
+                coin.setAttribute('position', `${x} ${y} ${z}`);
+                coin.setAttribute('rotation', '90 0 0');
+                coin.setAttribute('class', 'coin');
+                
+                // glow effect
+                coin.setAttribute('light', {
+                    type: 'point',
+                    color: '#FFD700',
+                    intensity: 0.8,
+                    distance: 1
+                });
+                
+                // floating animation
+                coin.setAttribute('animation', {
+                    property: 'position',
+                    to: `${x} ${y + 0.3} ${z}`,
+                    dir: 'alternate',
+                    dur: 1500 + Math.random() * 1000,
+                    loop: true,
+                    easing: 'easeInOutSine'
+                });
+                
+                container.appendChild(coin);
+                this.coins.push(coin);
+                
+                return coin;
+            }
+            
+            generateBackground() {
+                const container = document.getElementById('background-elements');
+                if (!container) return;
+                
+                // clear existing
+                while (container.firstChild) {
+                    container.removeChild(container.firstChild);
+                }
+                
+                // trees and rocks
+                for (let i = 0; i < 10; i++) {
+                    const tree = document.createElement('a-entity');
+                    const x = (Math.random() - 0.5) * 25;
+                    const z = -30 - Math.random() * 50;
+                    
+                    tree.setAttribute('geometry', 'primitive: cone; height: 3; radiusBottom: 1');
+                    tree.setAttribute('material', 'color: #2E7D32');
+                    tree.setAttribute('position', `${x} 1.5 ${z}`);
+                    container.appendChild(tree);
+                    
+                    const trunk = document.createElement('a-entity');
+                    trunk.setAttribute('geometry', 'primitive: cylinder; height: 2; radius: 0.3');
+                    trunk.setAttribute('material', 'color: #5D4037');
+                    trunk.setAttribute('position', `${x} 0 ${z}`);
+                    container.appendChild(trunk);
+                }
+            }
+            
+            startObjectGeneration() {
+                // generate obstacles periodically
+                this.obstacleTimer = setInterval(() => {
+                    if (this.isPlaying && this.obstacles.length < 8) {
+                        this.createObstacle(this.obstacles.length);
+                    }
+                }, 1500);
+                
+                // generate coins periodically
+                this.coinTimer = setInterval(() => {
+                    if (this.isPlaying && this.coins.length < 6) {
+                        this.createCoin(this.coins.length);
+                    }
+                }, 2000);
+            }
+            
+            startARGeneration() {
+                this.obstacleTimer = setInterval(() => {
+                    if (this.isPlaying && this.obstacles.length < 4) {
+                        this.createObstacle(this.obstacles.length);
+                    }
+                }, 2000);
+                
+                this.coinTimer = setInterval(() => {
+                    if (this.isPlaying && this.coins.length < 3) {
+                        this.createCoin(this.coins.length);
+                    }
+                }, 2500);
+            }
+            
+            clearGameObjects() {
+                this.obstacles.forEach(obstacle => {
+                    if (obstacle && obstacle.parentNode) {
+                        obstacle.parentNode.removeChild(obstacle);
+                    }
+                });
+                this.obstacles = [];
+                
+                this.coins.forEach(coin => {
+                    if (coin && coin.parentNode) {
+                        coin.parentNode.removeChild(coin);
+                    }
+                });
+                this.coins = [];
+            }
+            
+            clearARObjects() {
+                const arObstacles = document.getElementById('ar-obstacles');
+                const arCoins = document.getElementById('ar-coins');
+                
+                if (arObstacles) {
+                    while (arObstacles.firstChild) {
+                        arObstacles.removeChild(arObstacles.firstChild);
+                    }
+                }
+                
+                if (arCoins) {
+                    while (arCoins.firstChild) {
+                        arCoins.removeChild(arCoins.firstChild);
+                    }
+                }
+                
+                this.obstacles = [];
+                this.coins = [];
+            }
+            
+            removeObstacle(index) {
+                if (index >= 0 && index < this.obstacles.length && this.obstacles[index]) {
+                    const obstacle = this.obstacles[index];
+                    if (obstacle.parentNode) {
+                        obstacle.parentNode.removeChild(obstacle);
+                    }
+                    this.obstacles.splice(index, 1);
+                }
+            }
+            
+            collectCoin(index) {
+                if (index >= 0 && index < this.coins.length && this.coins[index]) {
+                    const coin = this.coins[index];
+                    if (coin.parentNode) {
+                        coin.parentNode.removeChild(coin);
+                    }
+                    
+                    // add score with bonus
+                    this.addScore(100);
+                    
+                    // visual feedback
+                    if (this.currentMode === '3d') {
+                        const scoreElement = document.getElementById('score');
+                        scoreElement.style.color = '#FFD700';
+                        scoreElement.style.transform = 'scale(1.2)';
+                        setTimeout(() => {
+                            scoreElement.style.color = '#4CAF50';
+                            scoreElement.style.transform = 'scale(1)';
+                        }, 300);
+                    }
+                    
+                    this.coins.splice(index, 1);
+                }
+            }
+            
+            removeCoin(index) {
+                if (index >= 0 && index < this.coins.length && this.coins[index]) {
+                    const coin = this.coins[index];
+                    if (coin.parentNode) {
+                        coin.parentNode.removeChild(coin);
+                    }
+                    this.coins.splice(index, 1);
+                }
+            }
+            
+            addScore(points) {
+                this.score += points;
+                this.updateScore();
+                
+                // upd high score
+                if (this.score > this.highScore) {
+                    this.highScore = this.score;
+                    localStorage.setItem('dinoHighScore', this.highScore);
+                    this.updateHighScore();
+                }
+            }
+            
+            updateScore() {
+                this.scoreElement.textContent = `SCORE: ${this.score}`;
+            }
+            
+            updateHighScore() {
+                this.highScoreElement.textContent = `HIGH: ${this.highScore}`;
+            }
+            
+            endGame() {
+                console.log('🎮 GAME OVER!');
+                
+                this.gameOver = true;
+                this.isPlaying = false;
+                this.pauseGame();
+                
+                // show game over message
+                this.showMessage(
+                    'GAME OVER!',
+                    `Final Score: ${this.score}<br>High Score: ${this.highScore}`,
+                    true
+                );
+                
+                // shake effect in 3D
+                if (this.currentMode === '3d') {
+                    const camera = document.getElementById('main-camera');
+                    camera.setAttribute('animation', {
+                        property: 'position',
+                        from: '0 3 5',
+                        to: '0.2 3 5.1',
+                        dir: 'alternate',
+                        dur: 100,
+                        loop: 10,
+                        easing: 'easeInOutSine'
+                    });
+                }
+            }
+            
+            restartGame() {
+                this.gameMessage.style.display = 'none';
+                
+                if (this.currentMode === '3d') {
+                    this.setup3DGame();
+                } else {
+                    this.clearARObjects();
+                }
+                
+                this.startGame();
+            }
+            
+            resetGame() {
+                if (confirm('Reset the game? Current score will be lost.')) {
+                    this.pauseGame();
+                    
+                    if (this.currentMode === '3d') {
+                        this.setup3DGame();
+                    } else {
+                        this.clearARObjects();
+                    }
+                    
+                    this.startGame();
+                }
+            }
+            
+            setCameraView(view) {
+                if (this.currentMode !== '3d') return;
+                
+                this.cameraView = view;
+                const camera = document.getElementById('main-camera');
+                
+                switch(view) {
+                    case 'front':
+                        camera.setAttribute('position', '0 3 8');
+                        camera.setAttribute('rotation', '0 0 0');
+                        break;
+                    case 'side':
+                        camera.setAttribute('position', '8 3 0');
+                        camera.setAttribute('rotation', '0 -90 0');
+                        break;
+                    case 'top':
+                        camera.setAttribute('position', '0 10 0');
+                        camera.setAttribute('rotation', '-90 0 0');
+                        break;
+                    case 'follow':
+                        camera.setAttribute('position', '0 3 5');
+                        camera.setAttribute('rotation', '0 0 0');
+                        break;
+                }
+            }
+            
+            showMessage(title, text, autoHide = true) {
+                this.messageTitle.innerHTML = title;
+                this.messageText.innerHTML = text;
+                this.gameMessage.style.display = 'block';
+                
+                if (autoHide) {
+                    setTimeout(() => {
+                        this.gameMessage.style.display = 'none';
+                    }, 3000);
+                }
+            }
+            
+            delay(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+        }
+        
+        // game
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log('🚀 Starting Ultimate Dino Game...');
+            window.game = new UltimateDinoGame();
+        });
+    </script>
+</body>
+</html>

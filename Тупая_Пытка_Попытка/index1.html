@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Interactive WebAR Dino Adventure</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="icon" href="data:;base64,iVBORw0KGgo="> 
+
+    <!-- Правильный порядок загрузки КРИТИЧЕН! -->
+    <!-- 1. A-Frame -->
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <!-- 2. Ammo.js -->
+    <script src="https://cdn.jsdelivr.net/gh/c-frame/ammo.js@master/builds/ammo.wasm.js"></script>
+    <!-- 3. A-Frame Physics System -->
+    <script src="https://unpkg.com/aframe-physics-system@4.0.1/dist/aframe-physics-system.min.js"></script>
+    <!-- 4. AR.js -->
+    <script src="https://raw.githack.com/AR-js-org/AR.js/3.4.0/aframe/build/aframe-ar-nft.js"></script>
+    <!-- 5. Hammer.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+
+    <!-- Убедитесь что это ЕДИНСТВЕННЫЙ скрипт с type="module" -->
+    <script type="module" src="main.js"></script>
+</head>
+<body>
+    <div class="overlay">
+        <h1>Interactive WebAR Dino Adventure</h1>
+        <p>Swipe or click on the dino to switch to a cute cat! Scan Hiro marker with camera to start AR.</p>
+        <div id="score">Score: 0</div>
+        <button id="start-ar">Start AR</button>
+        <button id="test-no-ar">Test without AR</button>
+        <button id="reset-scene">Reset Scene</button>
+        <div class="spinner" id="loading-spinner"></div>
+        <div id="notification" class="notification"></div>
+    </div>
+
+    <!-- AR СЦЕНА -->
+    <a-scene id="ar-scene" 
+             style="display: none;"
+             embedded
+             arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: false;"
+             physics="debug: false; driver: ammo; gravity: -9.8;"
+             vr-mode-ui="enabled: false">
+        
+        <!-- Ресурсы -->
+        <a-assets timeout="30000">
+            <a-asset-item id="dino-model" src="assets/tyrannosaurus_rex_rig/dino.gltf"></a-asset-item>
+            <a-asset-item id="cat-model" src="assets/oiiaioooooiai_cat/cat.gltf"></a-asset-item>
+            <audio id="jump-sound-asset" src="assets/jump.mp3"></audio>
+            <audio id="meow-sound-asset" src="assets/meow.mp3"></audio>
+        </a-assets>
+
+        <!-- Hiro маркер -->
+        <a-marker preset="hiro" emitevents="true" cursor="rayOrigin: mouse">
+            <!-- ДИНОЗАВР -->
+            <a-entity id="dino"
+                     gltf-model="#dino-model"
+                     fallback-geometry="primitive: box; width: 1; height: 1; depth: 1"
+                     fallback-material="color: #00ff00"
+                     position="0 0.5 0"
+                     scale="0.05 0.05 0.05"
+                     dynamic-body="shape: box; mass: 1; linearDamping: 0.5; angularDamping: 0.5"
+                     class="clickable"
+                     visible="true"
+                     data-type="character">
+                <!-- Анимация прыжка отдельно от физики -->
+                <a-animation attribute="position"
+                            dur="1000"
+                            direction="alternate"
+                            to="0 0.7 0"
+                            repeat="indefinite"
+                            easing="ease-in-out"
+                            startEvents="startJump"
+                            pauseEvents="stopJump">
+                </a-animation>
+            </a-entity>
+
+            <!-- КОТ -->
+            <a-entity id="cat"
+                     gltf-model="#cat-model"
+                     fallback-geometry="primitive: sphere; radius: 0.5"
+                     fallback-material="color: #ff00ff"
+                     position="0 0.5 0"
+                     scale="0.05 0.05 0.05"
+                     static-body
+                     class="clickable"
+                     visible="false"
+                     data-type="character">
+            </a-entity>
+
+            <!-- ПРЕПЯТСТВИЯ -->
+            <a-entity id="cactus1"
+                     geometry="primitive: cylinder; height: 0.5; radius: 0.1"
+                     material="color: #00aa00"
+                     position="1 0.25 0"
+                     static-body>
+            </a-entity>
+
+            <a-entity id="cactus2"
+                     geometry="primitive: cylinder; height: 0.5; radius: 0.1"
+                     material="color: #00aa00"
+                     position="2 0.25 0"
+                     static-body>
+            </a-entity>
+
+            <!-- ЗВУКИ -->
+            <a-entity id="jump-sound"
+                     sound="src: #jump-sound-asset; autoplay: false; volume: 0.5">
+            </a-entity>
+            
+            <a-entity id="meow-sound"
+                     sound="src: #meow-sound-asset; autoplay: false; volume: 0.5">
+            </a-entity>
+        </a-marker>
+
+        <!-- Камера -->
+        <a-entity camera look-controls="enabled: false" position="0 1.6 0"></a-entity>
+        
+        <!-- Освещение -->
+        <a-entity light="type: ambient; color: #888; intensity: 0.8"></a-entity>
+        <a-entity light="type: directional; color: #fff; intensity: 0.5" position="-1 2 1"></a-entity>
+    </a-scene>
+
+    <!-- 3D СЦЕНА (без AR) -->
+    <a-scene id="no-ar-scene" 
+             style="display: none;"
+             embedded
+             physics="debug: false; driver: ammo; gravity: -9.8;"
+             vr-mode-ui="enabled: false">
+        
+        <a-assets timeout="30000">
+            <a-asset-item id="dino-model-noar" src="assets/tyrannosaurus_rex_rig/dino.gltf"></a-asset-item>
+            <a-asset-item id="cat-model-noar" src="assets/oiiaioooooiai_cat/cat.gltf"></a-asset-item>
+            <audio id="jump-sound-asset-noar" src="assets/jump.mp3"></audio>
+            <audio id="meow-sound-asset-noar" src="assets/meow.mp3"></audio>
+        </a-assets>
+
+        <!-- ДИНОЗАВР -->
+        <a-entity id="dino-noar"
+                 gltf-model="#dino-model-noar"
+                 fallback-geometry="primitive: box; width: 1; height: 1; depth: 1"
+                 fallback-material="color: #00ff00"
+                 position="0 1 -4"
+                 scale="0.5 0.5 0.5"
+                 dynamic-body="shape: box; mass: 1; linearDamping: 0.5; angularDamping: 0.5"
+                 class="clickable"
+                 data-type="character">
+            <a-animation attribute="position"
+                        dur="1000"
+                        direction="alternate"
+                        to="0 1.5 -4"
+                        repeat="indefinite"
+                        easing="ease-in-out"
+                        startEvents="startJump"
+                        pauseEvents="stopJump">
+            </a-animation>
+        </a-entity>
+
+        <!-- КОТ -->
+        <a-entity id="cat-noar"
+                 gltf-model="#cat-model-noar"
+                 fallback-geometry="primitive: sphere; radius: 0.5"
+                 fallback-material="color: #ff00ff"
+                 position="2 1 -4"
+                 scale="0.5 0.5 0.5"
+                 static-body
+                 class="clickable"
+                 visible="false"
+                 data-type="character">
+        </a-entity>
+
+        <!-- ПРЕПЯТСТВИЯ -->
+        <a-entity id="cactus1-noar"
+                 geometry="primitive: cylinder; height: 0.5; radius: 0.2"
+                 material="color: #00aa00"
+                 position="1 0.25 -2"
+                 static-body>
+        </a-entity>
+
+        <a-entity id="cactus2-noar"
+                 geometry="primitive: cylinder; height: 0.5; radius: 0.2"
+                 material="color: #00aa00"
+                 position="3 0.25 -2"
+                 static-body>
+        </a-entity>
+
+        <!-- ЗВУКИ -->
+        <a-entity id="jump-sound-noar"
+                 sound="src: #jump-sound-asset-noar; autoplay: false; volume: 0.5">
+        </a-entity>
+        
+        <a-entity id="meow-sound-noar"
+                 sound="src: #meow-sound-asset-noar; autoplay: false; volume: 0.5">
+        </a-entity>
+
+        <!-- Камера и освещение -->
+        <a-entity camera look-controls position="0 1.6 0"></a-entity>
+        <a-entity light="type: ambient; color: #888; intensity: 0.8"></a-entity>
+        <a-entity light="type: directional; color: #fff; intensity: 0.8" position="-1 2 1"></a-entity>
+        <a-entity light="type: hemisphere; color: #fff; groundColor: #000; intensity: 0.6"></a-entity>
+    </a-scene>
+</body>
+</html>
