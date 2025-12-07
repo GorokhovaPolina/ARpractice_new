@@ -48,349 +48,897 @@
 
 <script>
     (function(){
-      // DOM
-      const marker = document.getElementById('hiro');
-      const player = document.getElementById('player');
-      const model = document.getElementById('model');
-      const fallback = document.getElementById('fallback');
-      const obsContainer = document.getElementById('obstacles');
-      const scoreEl = document.getElementById('score');
-      const hint = document.getElementById('hint');
-      const gameOverEl = document.getElementById('game-over');
-      const finalEl = document.getElementById('final');
-      const retryBtn = document.getElementById('retry');
-      const world = document.getElementById('world');
+        // DOM
+        const marker = document.getElementById('hiro');
+        const player = document.getElementById('player');
+        const model = document.getElementById('model');
+        const fallback = document.getElementById('fallback');
+        const obsContainer = document.getElementById('obstacles');
+        const scoreEl = document.getElementById('score');
+        const hint = document.getElementById('hint');
+        const gameOverEl = document.getElementById('game-over');
+        const finalEl = document.getElementById('final');
+        const retryBtn = document.getElementById('retry');
+        const world = document.getElementById('world');
+        const scene = document.querySelector('a-scene');
     
-      // game state
-      let markerVisible = false;
-      let running = false;
-      let jumping = false;
-      let isOnGround = true;
-      let vy = 0;
-      const GRAV = -0.018;
-      const JUMP_V = 0.45;
-      const baseY = 0.2;
-      let obstacles = [];
-      let spawnTimer = null;
-      let raf = null;
-      let score = 0;
+        // game state
+        let markerVisible = false;
+        let running = false;
+        let jumping = false;
+        let isOnGround = true;
+        let vy = 0;
+        const GRAV = -0.018;
+        const JUMP_V = 15;
+        const baseY = 0.2;
+        let obstacles = [];
+        let coins = [];
+        let roadSegments = [];
+        let roadMarkers = [];
+        let backgroundElements = [];
+        let spawnTimer = null;
+        let raf = null;
+        let score = 0;
+        let gameSpeed = 1.0;
+        let roadPositionZ = 0;
+        let roadSegmentCount = 8; // сегментов дороги
+        let segmentLength = 1.5; // длина одного сегмента
+        
+        // speeds / timings
+        const SPAWN_INTERVAL = 1200;
+        const OB_BASE_SPEED = 0.02; // увеличил скорость
+        const COIN_BASE_SPEED = 0.016;
+        const ROAD_SPEED = 0.03; // скорость движения дороги
+        const BG_SPEED = 0.015;
+        
+        // high score
+        let highScore = parseInt(localStorage.getItem('arDinoHigh')) || 0;
     
-      // new: coins array
-      let coins = [];
+        // show model if available
+        const asset = document.getElementById('dino-model');
+        if (asset) asset.addEventListener('loaded', ()=>{ 
+            model.setAttribute('visible','true'); 
+            fallback.setAttribute('visible','false'); 
+            // Поворачиваем динозавра боком (смотрим влево)
+            if (model.object3D) {
+                model.object3D.rotation.y = Math.PI;
+            }
+        }, {once:true});
     
-      // speeds / timings
-      const SPAWN_INTERVAL = 1200;
-      const OB_SPEED = 0.012; // obstacle speed (we will move left->right via +)
-      const COIN_SPEED = 0.009;
-      const MARKER_CHECK_INTERVAL = 60_000; // 1 minute
+        // MARKER events
+        marker.addEventListener('markerFound', ()=>{ 
+            markerVisible = true; 
+            hint.textContent = 'Marker found — Tap/SPACE to jump'; 
+            // Устанавливаем начальное положение дороги
+            roadPositionZ = 0;
+            updateRoadPosition();
+            startGameIfNeeded(); 
+        });
     
-      // high score
-      let highScore = parseInt(localStorage.getItem('arDinoHigh')) || 0;
+        marker.addEventListener('markerLost',  ()=>{ 
+            markerVisible = false; 
+            hint.textContent = 'Point camera at Hiro marker'; 
+            pauseGame(); 
+        });
     
-      // show model if available
-      const asset = document.getElementById('dino-model');
-      if (asset) asset.addEventListener('loaded', ()=>{ model.setAttribute('visible','true'); fallback.setAttribute('visible','false'); }, {once:true});
-    
-      // MARKER events
-      marker.addEventListener('markerFound', ()=>{ 
-        markerVisible = true; 
-        hint.textContent = 'Marker found — Tap/SPACE to jump'; 
-        // ensure ground plane aligned to marker (safety)
-        const plane = world.querySelector('a-plane');
-        if (plane) plane.setAttribute('rotation','-90 0 0');
-        startGameIfNeeded(); 
-      });
-    
-      marker.addEventListener('markerLost',  ()=>{ 
-        markerVisible = false; 
-        hint.textContent = 'Point camera at Hiro marker'; 
-        pauseGame(); 
-      });
-    
-      // input
-      window.addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); doJump(); }});
-      window.addEventListener('touchstart', e => { e.preventDefault(); doJump(); }, {passive:false});
-      retryBtn.addEventListener('click', ()=>{ resetGame(); startGameIfNeeded(); });
-    
-      // jump
-      function doJump(){
-        if (!running || !markerVisible || jumping || !isOnGround) return;
-        vy = JUMP_V;
-        jumping = true;
-        isOnGround = false;
-      }
-    
-      // ---- environment generation (road + forest) ----
-      function generateEnvironment(){
-        // remove previous extras if any
-        const old = world.querySelectorAll('.env');
-        old.forEach(n=> n.parentNode && n.parentNode.removeChild(n));
-    
-        // road strip (narrow plane)
-        const road = document.createElement('a-plane');
-        road.setAttribute('width','1.6');
-        road.setAttribute('height','2');
-        road.setAttribute('rotation','-90 0 0');
-        road.setAttribute('position','0 0.001 0');
-        road.setAttribute('material','color:#3b3b3b;opacity:0.5');
-        road.className = 'env';
-        world.appendChild(road);
-    
-        // trees (left and right)
-        for (let i=0;i<6;i++){
-          const tx = -0.9 + Math.random()*1.8;
-          const tz = -0.3 - Math.random()*1.6;
-          const trunk = document.createElement('a-cylinder');
-          trunk.setAttribute('height','0.4');
-          trunk.setAttribute('radius','0.05');
-          trunk.setAttribute('position', `${tx} 0.2 ${tz}`);
-          trunk.setAttribute('material','color:#5D4037');
-          trunk.className = 'env';
-          world.appendChild(trunk);
-    
-          const foliage = document.createElement('a-cone');
-          foliage.setAttribute('height','0.6');
-          foliage.setAttribute('radius-bottom','0.25');
-          foliage.setAttribute('position', `${tx} 0.5 ${tz}`);
-          foliage.setAttribute('material','color:#2E7D32');
-          foliage.className = 'env';
-          world.appendChild(foliage);
+        // input
+        window.addEventListener('keydown', e => { 
+            if (e.code === 'Space') { 
+                e.preventDefault(); 
+                doJump(); 
+            }
+        });
+        window.addEventListener('touchstart', e => { 
+            e.preventDefault(); 
+            doJump(); 
+        }, {passive:false});
+        window.addEventListener('click', e => { 
+            if (!e.target.closest('button')) {
+                doJump(); 
+            }
+        });
+        
+        retryBtn.addEventListener('click', ()=>{ 
+            resetGame(); 
+            startGameIfNeeded(); 
+        });
+
+        function doJump(){
+            if (!running || !markerVisible || !isOnGround) return;
+            vy = JUMP_V;
+            jumping = true;
+            isOnGround = false;
+            
+            // visual feedback
+            if (model.object3D) {
+                const originalScale = model.object3D.scale.clone();
+                model.object3D.scale.multiplyScalar(10);
+                setTimeout(() => {
+                    model.object3D.scale.copy(originalScale);
+                }, 150);
+            }
         }
-      }
     
-      // ---- obstacle + coin creation ----
-      function createObstacle(){
-        const id = 'o' + Date.now();
-        const el = document.createElement('a-box');
-        const h = 0.25 + Math.random()*0.6; // height
-        el.setAttribute('depth', 0.2);
-        el.setAttribute('height', h);
-        el.setAttribute('width', 0.2);
-        el.setAttribute('material','color:#8B4513');
-        // spawn on LEFT of marker (so it moves to the RIGHT)
-        const x = -0.9;
-        const y = h/2;
-        const z = (Math.random()-0.5)*0.4;
-        el.setAttribute('position', `${x} ${y} ${z}`);
-        el.setAttribute('id', id);
-        obsContainer.appendChild(el);
-        obstacles.push(el);
-      }
-    
-      function createCoin(){
-        const id = 'c' + Date.now();
-        const el = document.createElement('a-cylinder');
-        el.setAttribute('radius','0.06');
-        el.setAttribute('height','0.03');
-        el.setAttribute('material','color:#FFD700;metalness:1;roughness:0.2');
-        // spawn left
-        const x = -0.9;
-        const y = 0.35 + Math.random()*0.6;
-        const z = (Math.random()-0.5)*0.4;
-        el.setAttribute('position', `${x} ${y} ${z}`);
-        el.setAttribute('rotation','90 0 0');
-        el.setAttribute('id', id);
-        el.className = 'coin';
-        obsContainer.parentNode.querySelector('#obstacles') // ensure placement
-        obsContainer.appendChild(el);
-        coins.push(el);
-      }
-    
-      // start/stop generation
-      function startSpawning(){
-        if (spawnTimer) return;
-        spawnTimer = setInterval(()=>{ if (running) {
-          // alternate between obstacle and coin sometimes
-          if (Math.random() < 0.7) createObstacle(); else createCoin();
-        } }, SPAWN_INTERVAL);
-      }
-      function stopSpawning(){ if (spawnTimer){ clearInterval(spawnTimer); spawnTimer = null; } }
-    
-      // ---- main loop ----
-      let startTime = performance.now();
-      function loop(now){
-        // smooth time
-        const t = (now||performance.now()) - startTime;
-    
-        // physics for player
-        if (running && markerVisible){
-          // integrate gravity
-          if (!isOnGround){
-            vy += GRAV;
-            let pos = player.object3D.position;
-            pos.y += vy;
-            // land
-            if (pos.y <= baseY){
-              pos.y = baseY;
-              vy = 0;
-              isOnGround = true;
-              jumping = false;
+        // ---- INFINITE ROAD SYSTEM ----
+        function createRoadSystem(){
+            roadSegments.forEach(segment => {
+                if (segment && segment.parentNode) {
+                    segment.parentNode.removeChild(segment);
+                }
+            });
+            roadMarkers.forEach(marker => {
+                if (marker && marker.parentNode) {
+                    marker.parentNode.removeChild(marker);
+                }
+            });
+            roadSegments = [];
+            roadMarkers = [];
+            
+            // Дорога шириной с маркер (примерно 2 единицы)
+            const roadWidth = 1.8;
+            const roadHeight = segmentLength * roadSegmentCount;
+            
+            // Создаем сегменты дороги (для бесконечного эффекта)
+            for (let i = 0; i < roadSegmentCount; i++) {
+                const roadSegment = document.createElement('a-plane');
+                roadSegment.setAttribute('width', roadWidth.toString());
+                roadSegment.setAttribute('height', segmentLength.toString());
+                roadSegment.setAttribute('rotation', '-90 0 0');
+                
+                // Позиция: Z идет вдаль от камеры
+                const zPos = -i * segmentLength;
+                roadSegment.setAttribute('position', `0 0.001 ${zPos}`);
+                
+                // Текстура асфальта с трещинами для реализма
+                roadSegment.setAttribute('material', {
+                    color: '#333333',
+                    roughness: 0.9,
+                    src: 'https://cdn.aframe.io/a-painter/images/floor.jpg',
+                    repeat: `${roadWidth} ${segmentLength/2}`,
+                    metalness: 0.1
+                });
+                
+                roadSegment.className = 'road-segment';
+                roadSegment.setAttribute('id', `road-segment-${i}`);
+                world.appendChild(roadSegment);
+                roadSegments.push(roadSegment);
+                
+                // Дорожная разметка для этого сегмента
+                createRoadMarkings(roadSegment, roadWidth, segmentLength, zPos);
             }
-            player.object3D.position.copy(pos);
-          }
-    
-          // small left->right player oscillation to give impression of forward movement
-          if (player && player.object3D){
-            const px = -0.35 + Math.sin(now/900) * 0.35; // oscillates between approx -0.7 and 0
-            player.object3D.position.x = px;
-          }
-    
-          // move obstacles left->right (x increases)
-          for (let i = obstacles.length-1; i >=0; i--){
-            const ob = obstacles[i];
-            if (!ob || !ob.object3D) { obstacles.splice(i,1); continue; }
-            ob.object3D.position.x += OB_SPEED;
-            // remove if passed
-            if (ob.object3D.position.x > 1.2){
-              // passed -> score
-              score += 10;
-              updateScore();
-              if (ob.parentNode) ob.parentNode.removeChild(ob);
-              obstacles.splice(i,1);
-              continue;
-            }
-            // collision (simple): horizontal + z + vertical check
-            const p = player.object3D.position;
-            const dx = Math.abs(p.x - ob.object3D.position.x);
-            const dz = Math.abs(p.z - ob.object3D.position.z);
-            const playerFeet = p.y;
-            const obTop = ob.object3D.position.y + (ob.getAttribute('height')/2 || 0);
-            if (dx < 0.25 && dz < 0.25 && playerFeet <= (obTop - 0.05)){
-              // collided -> game over (dino dead)
-              endGame();
-              break;
-            }
-          }
-    
-          // move coins and collection check
-          for (let i = coins.length-1; i>=0; i--){
-            const c = coins[i];
-            if (!c || !c.object3D) { coins.splice(i,1); continue; }
-            c.object3D.position.x += COIN_SPEED;
-            // rotate coin visually
-            c.object3D.rotation.y += 0.2;
-            if (c.object3D.position.x > 1.2){
-              if (c.parentNode) c.parentNode.removeChild(c);
-              coins.splice(i,1);
-              continue;
-            }
-            // collection
-            const p = player.object3D.position;
-            const dx = Math.abs(p.x - c.object3D.position.x);
-            const dz = Math.abs(p.z - c.object3D.position.z);
-            if (dx < 0.2 && dz < 0.2 && Math.abs(p.y - c.object3D.position.y) < 0.5){
-              // collected
-              score += 50;
-              updateScore();
-              // small visual: pop
-              if (c.parentNode) c.parentNode.removeChild(c);
-              coins.splice(i,1);
-            }
-          }
+            
+            // Бордюры по краям дороги
+            createRoadBorders(roadWidth);
+            
+            // Окружение дороги (трава и т.д.)
+            createRoadEnvironment(roadWidth);
         }
-        raf = requestAnimationFrame(loop);
-      }
-    
-      function startGameIfNeeded(){
-        if (!markerVisible) return;
-        if (running) return;
-        running = true;
-        score = 0; updateScore();
-        hint.style.display = 'block';
-        gameOverEl.style.display = 'none';
-        // prepare environment
-        resetPlayer();
-        generateEnvironment();
-        startSpawning();
-        if (!raf) {
-          startTime = performance.now();
-          loop(startTime);
+        
+        function createRoadMarkings(parentRoad, width, length, zOffset){
+            // Центральная прерывистая линия
+            const dashCount = Math.floor(length / 0.3);
+            for (let i = 0; i < dashCount; i++) {
+                const dash = document.createElement('a-plane');
+                const dashZ = zOffset - (i * 0.3) + (length/2) - 0.15;
+                dash.setAttribute('width', '0.08');
+                dash.setAttribute('height', '0.2');
+                dash.setAttribute('rotation', '-90 0 0');
+                dash.setAttribute('position', `0 0.002 ${dashZ}`);
+                dash.setAttribute('material', {
+                    color: '#FFD700',
+                    emissive: '#FFD700',
+                    emissiveIntensity: 0.3
+                });
+                dash.className = 'road-marking';
+                world.appendChild(dash);
+                roadMarkers.push(dash);
+            }
+            
+            // Сплошные линии по краям
+            const leftLine = document.createElement('a-plane');
+            leftLine.setAttribute('width', '0.05');
+            leftLine.setAttribute('height', length.toString());
+            leftLine.setAttribute('rotation', '-90 0 0');
+            leftLine.setAttribute('position', `${-width/2 + 0.025} 0.002 ${zOffset}`);
+            leftLine.setAttribute('material', {
+                color: 'white',
+                emissive: 'white',
+                emissiveIntensity: 0.2
+            });
+            leftLine.className = 'road-marking';
+            world.appendChild(leftLine);
+            roadMarkers.push(leftLine);
+            
+            const rightLine = document.createElement('a-plane');
+            rightLine.setAttribute('width', '0.05');
+            rightLine.setAttribute('height', length.toString());
+            rightLine.setAttribute('rotation', '-90 0 0');
+            rightLine.setAttribute('position', `${width/2 - 0.025} 0.002 ${zOffset}`);
+            rightLine.setAttribute('material', {
+                color: 'white',
+                emissive: 'white',
+                emissiveIntensity: 0.2
+            });
+            rightLine.className = 'road-marking';
+            world.appendChild(rightLine);
+            roadMarkers.push(rightLine);
         }
-      }
-    
-      function pauseGame(){
-        running = false;
-        stopSpawning();
-        if (raf){ cancelAnimationFrame(raf); raf = null; }
-      }
-    
-      // ---- game over / reset / restore ----
-      function endGame(){
-        running = false;
-        stopSpawning();
-        if (raf){ cancelAnimationFrame(raf); raf = null; }
-        gameOverEl.style.display = 'block';
-        finalEl.textContent = 'Score: ' + score;
-        // save high score
-        if (score > highScore){
-          highScore = score;
-          localStorage.setItem('arDinoHigh', highScore);
+        
+        function createRoadBorders(roadWidth){
+            const borderHeight = 0.1;
+            const borderDepth = segmentLength * roadSegmentCount;
+            
+            // Левый бордюр
+            const leftBorder = document.createElement('a-box');
+            leftBorder.setAttribute('width', '0.1');
+            leftBorder.setAttribute('height', borderHeight);
+            leftBorder.setAttribute('depth', borderDepth);
+            leftBorder.setAttribute('position', `${-roadWidth/2 - 0.05} ${borderHeight/2} ${-borderDepth/2 + segmentLength/2}`);
+            leftBorder.setAttribute('material', {
+                color: '#666666',
+                roughness: 0.7
+            });
+            leftBorder.className = 'road-border';
+            world.appendChild(leftBorder);
+            roadMarkers.push(leftBorder);
+            
+            // Правый бордюр
+            const rightBorder = document.createElement('a-box');
+            rightBorder.setAttribute('width', '0.1');
+            rightBorder.setAttribute('height', borderHeight);
+            rightBorder.setAttribute('depth', borderDepth);
+            rightBorder.setAttribute('position', `${roadWidth/2 + 0.05} ${borderHeight/2} ${-borderDepth/2 + segmentLength/2}`);
+            rightBorder.setAttribute('material', {
+                color: '#666666',
+                roughness: 0.7
+            });
+            rightBorder.className = 'road-border';
+            world.appendChild(rightBorder);
+            roadMarkers.push(rightBorder);
         }
-        // visual restore: set model visible to false for a brief 'death' flash
-        if (model) model.setAttribute('visible','false');
-        if (fallback) fallback.setAttribute('material','color:#B71C1C'); // red to show damage
-        setTimeout(()=>{ // restore appearance after short time
-          if (model) model.setAttribute('visible','true');
-          if (fallback) fallback.setAttribute('material','color:#4CAF50');
-        }, 800);
-      }
+        
+        function createRoadEnvironment(roadWidth){
+            // Освещение
+            const ambientLight = document.createElement('a-light');
+            ambientLight.setAttribute('type', 'ambient');
+            ambientLight.setAttribute('color', '#88C');
+            ambientLight.setAttribute('intensity', '0.4');
+            world.appendChild(ambientLight);
+            
+            const directionalLight = document.createElement('a-light');
+            directionalLight.setAttribute('type', 'directional');
+            directionalLight.setAttribute('color', '#FFEECC');
+            directionalLight.setAttribute('intensity', '0.9');
+            directionalLight.setAttribute('position', '3 10 2');
+            directionalLight.setAttribute('cast-shadow', 'true');
+            world.appendChild(directionalLight);
+            
+            // Газоны по бокам
+            const grassWidth = 1.5;
+            const grassDepth = segmentLength * roadSegmentCount;
+            
+            const leftGrass = document.createElement('a-plane');
+            leftGrass.setAttribute('width', grassWidth.toString());
+            leftGrass.setAttribute('height', grassDepth.toString());
+            leftGrass.setAttribute('rotation', '-90 0 0');
+            leftGrass.setAttribute('position', `${-roadWidth/2 - grassWidth/2 - 0.1} 0 ${-grassDepth/2 + segmentLength/2}`);
+            leftGrass.setAttribute('material', {
+                color: '#2E7D32',
+                roughness: 1,
+                src: './assets/grass.jpeg',
+                repeat: `${grassWidth/2} ${grassDepth/4}`
+            });
+            leftGrass.className = 'environment';
+            world.appendChild(leftGrass);
+            backgroundElements.push(leftGrass);
+            
+            const rightGrass = document.createElement('a-plane');
+            rightGrass.setAttribute('width', grassWidth.toString());
+            rightGrass.setAttribute('height', grassDepth.toString());
+            rightGrass.setAttribute('rotation', '-90 0 0');
+            rightGrass.setAttribute('position', `${roadWidth/2 + grassWidth/2 + 0.1} 0 ${-grassDepth/2 + segmentLength/2}`);
+            rightGrass.setAttribute('material', {
+                color: '#2E7D32',
+                roughness: 1,
+                src: './assets/grass.jpeg',
+                repeat: `${grassWidth/2} ${grassDepth/4}`
+            });
+            rightGrass.className = 'environment';
+            world.appendChild(rightGrass);
+            backgroundElements.push(rightGrass);
+            
+            // Деревья (случайные по бокам)
+            for (let i = 0; i < 12; i++) {
+                const side = Math.random() > 0.5 ? 1 : -1;
+                const treeX = side * (roadWidth/2 + grassWidth + 0.3 + Math.random() * 0.5);
+                const treeZ = -Math.random() * (segmentLength * (roadSegmentCount - 1));
+                
+                createTree(treeX, treeZ);
+            }
+            
+            // Фонарные столбы
+            for (let i = 0; i < 6; i++) {
+                const side = i % 2 === 0 ? -1 : 1;
+                const lampX = side * (roadWidth/2 + 0.2);
+                const lampZ = -i * (segmentLength * 1.5);
+                
+                createLampPost(lampX, lampZ);
+            }
+        }
+        
+        function createTree(x, z){
+            const treeHeight = 0.8 + Math.random() * 0.5;
+            const trunkRadius = 0.04;
+            
+            // Ствол
+            const trunk = document.createElement('a-cylinder');
+            trunk.setAttribute('height', treeHeight * 0.6);
+            trunk.setAttribute('radius', trunkRadius);
+            trunk.setAttribute('position', `${x} ${treeHeight * 0.3} ${z}`);
+            trunk.setAttribute('material', {
+                color: '#5D4037',
+                roughness: 0.9
+            });
+            trunk.className = 'environment tree';
+            world.appendChild(trunk);
+            backgroundElements.push(trunk);
+            
+            // Крона (несколько сфер для объема)
+            const foliageCount = 3;
+            for (let j = 0; j < foliageCount; j++) {
+                const foliage = document.createElement('a-sphere');
+                const foliageY = treeHeight * 0.6 + (j * 0.15);
+                const foliageRadius = 0.2 - (j * 0.05);
+                
+                foliage.setAttribute('radius', foliageRadius);
+                foliage.setAttribute('position', `${x} ${foliageY} ${z + (Math.random() - 0.5) * 0.1}`);
+                foliage.setAttribute('material', {
+                    color: j === 0 ? '#1B5E20' : '#2E7D32',
+                    roughness: 0.8,
+                    transparent: true,
+                    opacity: 0.9 - (j * 0.1)
+                });
+                foliage.className = 'environment tree-foliage';
+                world.appendChild(foliage);
+                backgroundElements.push(foliage);
+            }
+        }
+        
+        function createLampPost(x, z){
+            // Столб
+            const post = document.createElement('a-cylinder');
+            post.setAttribute('height', '1.2');
+            post.setAttribute('radius', '0.03');
+            post.setAttribute('position', `${x} 0.6 ${z}`);
+            post.setAttribute('material', {
+                color: '#37474F',
+                metalness: 0.5
+            });
+            post.className = 'environment lamp-post';
+            world.appendChild(post);
+            backgroundElements.push(post);
+            
+            // Фонарь
+            const lamp = document.createElement('a-sphere');
+            lamp.setAttribute('radius', '0.08');
+            lamp.setAttribute('position', `${x} 1.2 ${z}`);
+            lamp.setAttribute('material', {
+                color: '#FFE082',
+                emissive: '#FFE082',
+                emissiveIntensity: 0.5
+            });
+            lamp.className = 'environment lamp-light';
+            world.appendChild(lamp);
+            backgroundElements.push(lamp);
+            
+            // Свет от фонаря
+            const lampLight = document.createElement('a-light');
+            lampLight.setAttribute('type', 'point');
+            lampLight.setAttribute('color', '#FFE082');
+            lampLight.setAttribute('intensity', '0.6');
+            lampLight.setAttribute('distance', '2');
+            lampLight.setAttribute('position', `${x} 1.2 ${z}`);
+            lampLight.className = 'environment lamp-light-source';
+            world.appendChild(lampLight);
+            backgroundElements.push(lampLight);
+        }
+        
+        function updateRoadPosition(){
+            roadPositionZ += ROAD_SPEED * gameSpeed;
+            
+            // Обновляем позицию сегментов дороги для создания бесконечного эффекта
+            roadSegments.forEach((segment, index) => {
+                if (segment && segment.object3D) {
+                    const newZ = -index * segmentLength + (roadPositionZ % segmentLength);
+                    segment.object3D.position.z = newZ;
+                    
+                    // Если сегмент ушел слишком далеко, перемещаем его в начало
+                    if (newZ > segmentLength) {
+                        segment.object3D.position.z = -((roadSegmentCount - 1) * segmentLength) + (roadPositionZ % segmentLength);
+                    }
+                }
+            });
+            
+            // Обновляем разметку
+            roadMarkers.forEach(marker => {
+                if (marker && marker.object3D) {
+                    marker.object3D.position.z += ROAD_SPEED * gameSpeed * 0.5;
+                    
+                    // Если маркер ушел слишком далеко, удаляем его (он будет создан заново)
+                    if (marker.object3D.position.z > segmentLength * 2) {
+                        if (marker.parentNode) {
+                            marker.parentNode.removeChild(marker);
+                        }
+                    }
+                }
+            });
+            
+            // Обновляем фоновые элементы
+            backgroundElements.forEach(element => {
+                if (element && element.object3D && element.className.includes('environment')) {
+                    element.object3D.position.z += ROAD_SPEED * gameSpeed;
+                    
+                    // Если элемент ушел слишком далеко, перемещаем его в начало
+                    if (element.object3D.position.z > segmentLength) {
+                        element.object3D.position.z = -segmentLength * (roadSegmentCount - 1);
+                        
+                        // Для деревьев случайно меняем позицию X
+                        if (element.className.includes('tree')) {
+                            const side = Math.random() > 0.5 ? 1 : -1;
+                            element.object3D.position.x = side * (0.9 + Math.random() * 0.5 + 0.5);
+                        }
+                    }
+                }
+            });
+        }
     
-      function resetGame(){
-        // clear obstacles & coins
-        obstacles.forEach(o => { if (o.parentNode) o.parentNode.removeChild(o); });
-        coins.forEach(c => { if (c.parentNode) c.parentNode.removeChild(c); });
-        obstacles = [];
-        coins = [];
-        // reset player
-        resetPlayer();
-        vy = 0; jumping = false; isOnGround = true;
-        score = 0; updateScore();
-        gameOverEl.style.display = 'none';
-      }
+        // ---- OBSTACLE + COIN CREATION ----
+        function createObstacle(){
+            const id = 'o' + Date.now();
+            const el = document.createElement('a-entity');
+            const types = [
+                { shape: 'box', color: '#8B4513', size: {x: 0.25, y: 0.35, z: 0.25}, roughness: 0.9 },
+                { shape: 'cylinder', color: '#A0522D', size: {x: 0.2, y: 0.45, z: 0.2}, roughness: 0.8 },
+                { shape: 'cone', color: '#D2691E', size: {x: 0.22, y: 0.4, z: 0.22}, roughness: 0.85 }
+            ];
+            
+            const type = types[Math.floor(Math.random() * types.length)];
+            const obstacleHeight = 0.3 + Math.random() * 0.3;
+            
+            el.setAttribute('geometry', `primitive: ${type.shape}`);
+            el.setAttribute('material', `color: ${type.color}; roughness: ${type.roughness}`);
+            el.setAttribute('scale', `${type.size.x} ${obstacleHeight} ${type.size.z}`);
+            
+            // Спавним впереди (по Z) а не сбоку
+            const spawnZ = -segmentLength * 2; // далеко впереди
+            const xPos = (Math.random() - 0.5) * 1.2; // случайная позиция по ширине дороги
+            const yPos = obstacleHeight / 2;
+            
+            el.setAttribute('position', `${xPos} ${yPos} ${spawnZ}`);
+            el.setAttribute('id', id);
+            
+            // Вращение
+            if (type.shape !== 'cone') {
+                el.setAttribute('animation', {
+                    property: 'rotation',
+                    to: '0 360 0',
+                    dur: 3000 + Math.random() * 2000,
+                    loop: true,
+                    easing: 'linear'
+                });
+            }
+            
+            obsContainer.appendChild(el);
+            obstacles.push({element: el, height: obstacleHeight});
+        }
     
-      function resetPlayer(){
-        if (player && player.object3D) player.object3D.position.set(-0.35, baseY, 0);
-        // ensure model visibility fallback
-        if (model) model.setAttribute('visible','true');
-        if (fallback) fallback.setAttribute('visible','true');
-      }
+        function createCoin(){
+            const id = 'c' + Date.now();
+            const el = document.createElement('a-entity');
+            
+            // Основная часть монеты
+            const coin = document.createElement('a-cylinder');
+            coin.setAttribute('radius','0.06');
+            coin.setAttribute('height','0.03');
+            coin.setAttribute('material', {
+                color: '#FFD700',
+                metalness: 1,
+                roughness: 0.1,
+                envMap: true
+            });
+            coin.setAttribute('rotation','90 0 0');
+            
+            el.appendChild(coin);
+            
+            // Спавним впереди
+            const spawnZ = -segmentLength * 2;
+            const xPos = (Math.random() - 0.5) * 1.2;
+            const yPos = 0.4 + Math.random() * 0.4;
+            
+            el.setAttribute('position', `${xPos} ${yPos} ${spawnZ}`);
+            el.setAttribute('id', id);
+            el.className = 'coin-container';
+            
+            // Плавающая анимация
+            el.setAttribute('animation', {
+                property: 'position',
+                to: `${xPos} ${yPos + 0.2} ${spawnZ}`,
+                dir: 'alternate',
+                dur: 1200 + Math.random() * 600,
+                loop: true,
+                easing: 'easeInOutSine'
+            });
+            
+            // Вращение
+            el.setAttribute('animation__rotate', {
+                property: 'rotation',
+                to: '0 360 0',
+                dur: 1800,
+                loop: true,
+                easing: 'linear'
+            });
+            
+            // Свечение
+            el.setAttribute('light', {
+                type: 'point',
+                color: '#FFD700',
+                intensity: 0.8,
+                distance: 1
+            });
+            
+            obsContainer.appendChild(el);
+            coins.push(el);
+        }
     
-      function updateScore(){
-        scoreEl.textContent = score + ' (BEST: ' + highScore + ')';
-      }
+        // start/stop generation
+        function startSpawning(){
+            if (spawnTimer) return;
+            spawnTimer = setInterval(()=>{ 
+                if (running && markerVisible) {
+                    if (Math.random() < 0.65) {
+                        createObstacle(); 
+                    } else {
+                        createCoin();
+                    }
+                } 
+            }, SPAWN_INTERVAL);
+        }
+        
+        function stopSpawning(){ 
+            if (spawnTimer){ 
+                clearInterval(spawnTimer); 
+                spawnTimer = null; 
+            } 
+        }
     
-      // safety: ensure player.object3D exists after scene load
-      document.querySelector('a-scene').addEventListener('loaded', ()=> {
-        if (player && player.object3D) player.object3D.position.set(-0.35, baseY, 0);
-        generateEnvironment();
-        updateScore();
-      });
+        // ---- MAIN LOOP ----
+        let startTime = performance.now();
+        function loop(now){
+            if (!running || !markerVisible) {
+                raf = requestAnimationFrame(loop);
+                return;
+            }
     
-      // stop everything when page hidden
-      document.addEventListener('visibilitychange', ()=> { if (document.hidden) pauseGame(); });
+            const t = (now || performance.now()) - startTime;
+            const delta = Math.min(1, (now - (lastTime || now)) / 16);
+            lastTime = now;
     
-      // init minimal: allow spawn when marker found
-      // ---- MARKER PRESENCE CHECK every minute ----
-      // --- Adaptive marker check: 
-      // if marker is visible → check once per minute
-      // if not visible → check every second until visible again
-      (function adaptiveMarkerCheck(){
-      function check(){
-         if (!markerVisible){
-            // marker lost → check every second
-            hint.textContent = 'Marker not detected — Point camera at Hiro marker';
-            pauseGame();
-            setTimeout(check, 1000); // 1 second retry
-         } else {
-         // marker visible → next check in 1 minute
-         if (!running) hint.textContent = 'Marker found — Tap/SPACE to jump';
-         setTimeout(check, 60000); // 1 minute
-         }
-      }
-      check();
-      })();
+            // Increase difficulty
+            gameSpeed = 1.0 + (score * 0.0002);
+            const currentObSpeed = OB_BASE_SPEED * gameSpeed;
+            const currentCoinSpeed = COIN_BASE_SPEED * gameSpeed;
+    
+            // Physics for player
+            if (!isOnGround){
+                vy += GRAV * delta;
+                let pos = player.object3D.position;
+                pos.y += vy;
+                
+                // Landing
+                if (pos.y <= baseY){
+                    pos.y = baseY;
+                    vy = 0;
+                    isOnGround = true;
+                    jumping = false;
+                }
+                player.object3D.position.copy(pos);
+            }
+    
+            // Player running animation
+            if (player && player.object3D){
+                // Легкое покачивание при беге
+                const runBob = Math.sin(now / 250) * 0.02;
+                player.object3D.position.y = baseY + runBob;
+                
+                // Динозавр смотрит влево (уже установлено при загрузке)
+                // Можно добавить небольшую анимацию
+                if (model && model.object3D) {
+                    const headBob = Math.sin(now / 400) * 0.05;
+                    model.object3D.rotation.z = headBob;
+                }
+            }
+    
+            // Update road position (бесконечная дорога)
+            updateRoadPosition();
+    
+            // Move obstacles toward player
+            for (let i = obstacles.length-1; i >= 0; i--){
+                const obstacle = obstacles[i];
+                if (!obstacle || !obstacle.element || !obstacle.element.object3D) { 
+                    obstacles.splice(i,1); 
+                    continue; 
+                }
+                
+                // Движемся по Z к игроку
+                obstacle.element.object3D.position.z += currentObSpeed;
+                
+                // Remove if passed player
+                if (obstacle.element.object3D.position.z > 1.0){
+                    score += 10;
+                    updateScore();
+                    if (obstacle.element.parentNode) obstacle.element.parentNode.removeChild(obstacle.element);
+                    obstacles.splice(i,1);
+                    continue;
+                }
+                
+                // Collision detection
+                const p = player.object3D.position;
+                const ob = obstacle.element.object3D.position;
+                const dx = Math.abs(p.x - ob.x);
+                const dz = Math.abs(p.z - ob.z);
+                
+                // Коллизия происходит только если динозавр на земле
+                if (dx < 0.25 && dz < 0.25 && isOnGround){
+                    endGame();
+                    break;
+                }
+            }
+    
+            // Move coins and check collection
+            for (let i = coins.length-1; i >= 0; i--){
+                const c = coins[i];
+                if (!c || !c.object3D) { 
+                    coins.splice(i,1); 
+                    continue; 
+                }
+                
+                c.object3D.position.z += currentCoinSpeed;
+                
+                if (c.object3D.position.z > 1.0){
+                    if (c.parentNode) c.parentNode.removeChild(c);
+                    coins.splice(i,1);
+                    continue;
+                }
+                
+                // Collection check
+                const p = player.object3D.position;
+                const coinPos = c.object3D.position;
+                const dx = Math.abs(p.x - coinPos.x);
+                const dz = Math.abs(p.z - coinPos.z);
+                
+                if (dx < 0.2 && dz < 0.2 && Math.abs(p.y - coinPos.y) < 0.5){
+                    // Collected!
+                    score += 50;
+                    updateScore();
+                    
+                    // Visual effect
+                    if (c.parentNode) c.parentNode.removeChild(c);
+                    coins.splice(i,1);
+                    
+                    // Score pop effect
+                    scoreEl.style.transform = 'scale(1.4)';
+                    scoreEl.style.color = '#FFD700';
+                    scoreEl.style.textShadow = '0 0 10px #FFD700';
+                    setTimeout(() => {
+                        scoreEl.style.transform = 'scale(1)';
+                        scoreEl.style.color = '#fff';
+                        scoreEl.style.textShadow = 'none';
+                    }, 300);
+                    
+                    // Coin collection particle effect
+                    createCoinParticles(coinPos);
+                }
+            }
+            
+            raf = requestAnimationFrame(loop);
+        }
+        let lastTime = 0;
+        
+        function createCoinParticles(position){
+            for (let i = 0; i < 8; i++) {
+                setTimeout(() => {
+                    const particle = document.createElement('a-sphere');
+                    particle.setAttribute('radius', '0.02');
+                    particle.setAttribute('position', `${position.x} ${position.y} ${position.z}`);
+                    particle.setAttribute('material', 'color: #FFD700; emissive: #FFD700');
+                    particle.setAttribute('animation', {
+                        property: 'position',
+                        to: `${position.x + (Math.random()-0.5)*0.5} ${position.y + Math.random()*0.5} ${position.z + (Math.random()-0.5)*0.5}`,
+                        dur: 800,
+                        easing: 'easeOutQuad'
+                    });
+                    particle.setAttribute('animation__scale', {
+                        property: 'scale',
+                        to: '0 0 0',
+                        dur: 800,
+                        easing: 'easeInQuad'
+                    });
+                    world.appendChild(particle);
+                    setTimeout(() => {
+                        if (particle.parentNode) particle.parentNode.removeChild(particle);
+                    }, 800);
+                }, i * 50);
+            }
+        }
+    
+        function startGameIfNeeded(){
+            if (!markerVisible) return;
+            if (running) return;
+            
+            running = true;
+            score = 0; 
+            gameSpeed = 1.0;
+            roadPositionZ = 0;
+            updateScore();
+            hint.style.display = 'block';
+            gameOverEl.style.display = 'none';
+            
+            // Prepare environment
+            resetPlayer();
+            createRoadSystem();
+            startSpawning();
+            
+            if (!raf) {
+                startTime = performance.now();
+                lastTime = startTime;
+                loop(startTime);
+            }
+        }
+    
+        function pauseGame(){
+            running = false;
+            stopSpawning();
+            if (raf){ 
+                cancelAnimationFrame(raf); 
+                raf = null; 
+            }
+        }
+    
+        // ---- GAME OVER / RESET ----
+        function endGame(){
+            running = false;
+            stopSpawning();
+            if (raf){ 
+                cancelAnimationFrame(raf); 
+                raf = null; 
+            }
+            
+            gameOverEl.style.display = 'block';
+            finalEl.innerHTML = `Score: ${score}<br>High Score: ${highScore}`;
+            
+            // Save high score
+            if (score > highScore){
+                highScore = score;
+                localStorage.setItem('arDinoHigh', highScore);
+            }
+            
+            // Death animation
+            if (model && model.object3D) {
+                model.object3D.rotation.x = Math.PI/4; // Падает вперед
+                model.object3D.position.y = baseY - 0.1;
+            }
+            
+            // Red flash effect
+            document.body.style.backgroundColor = '#B71C1C';
+            setTimeout(() => {
+                document.body.style.backgroundColor = '#111';
+            }, 300);
+        }
+    
+        function resetGame(){
+            // Clear obstacles & coins
+            obstacles.forEach(o => { 
+                if (o && o.element && o.element.parentNode) o.element.parentNode.removeChild(o.element); 
+            });
+            coins.forEach(c => { 
+                if (c && c.parentNode) c.parentNode.removeChild(c); 
+            });
+            obstacles = [];
+            coins = [];
+            
+            // Clear environment
+            backgroundElements.forEach(el => {
+                if (el && el.parentNode) el.parentNode.removeChild(el);
+            });
+            backgroundElements = [];
+            
+            // Reset player
+            resetPlayer();
+            vy = 0; 
+            jumping = false; 
+            isOnGround = true;
+            score = 0; 
+            gameSpeed = 1.0;
+            updateScore();
+            gameOverEl.style.display = 'none';
+            
+            // Restore player appearance
+            if (model && model.object3D) {
+                model.object3D.rotation.x = 0;
+                model.object3D.rotation.y = Math.PI; // Смотрим влево
+                model.object3D.position.y = baseY;
+            }
+        }
+    
+        function resetPlayer(){
+            if (player && player.object3D) {
+                player.object3D.position.set(0, baseY, 0); // В центре дороги
+                player.object3D.rotation.set(0, 0, 0);
+            }
+            if (model && model.object3D) {
+                model.object3D.rotation.y = Math.PI // Смотрим влево
+                model.object3D.visible = true;
+            }
+            if (fallback && fallback.object3D) {
+                fallback.object3D.rotation.y = Math.PI; // Смотрим влево
+                fallback.setAttribute('material','color:#4CAF50');
+                fallback.object3D.rotation.x = 0;
+            }
+        }
+    
+        function updateScore(){
+            scoreEl.textContent = `${score} (HIGH: ${highScore})`;
+            scoreEl.style.fontWeight = 'bold';
+        }
+    
+        // Scene loaded event
+        scene.addEventListener('loaded', ()=> {
+            if (player && player.object3D) {
+                player.object3D.position.set(0, baseY, 0);
+            }
+            createRoadSystem();
+            updateScore();
+            
+            // Set initial player rotation to look left
+            if (model && model.object3D) {
+                model.object3D.rotation.y = Math.PI;
+            }
+            if (fallback && fallback.object3D) {
+                fallback.object3D.rotation.y = Math.PI;
+            }
+        });
+    
+        // Visibility change
+        document.addEventListener('visibilitychange', ()=> { 
+            if (document.hidden) pauseGame(); 
+        });
+    
+        // Adaptive marker check
+        (function adaptiveMarkerCheck(){
+            function check(){
+                if (!markerVisible){
+                    hint.textContent = 'Point camera at Hiro marker';
+                    pauseGame();
+                    setTimeout(check, 1000);
+                } else {
+                    if (!running) hint.textContent = 'Marker found — Tap/SPACE to jump';
+                    setTimeout(check, 60000);
+                }
+            }
+            check();
+        })();
+        
+        // Initialize player rotation immediately
+        setTimeout(() => {
+            if (model && model.object3D) {
+                model.object3D.rotation.y = Math.PI;
+            }
+            if (fallback && fallback.object3D) {
+                fallback.object3D.rotation.y = Math.PI;
+            }
+        }, 100);
     })();
-    </script>
-    
+</script>
+
 </body>
 </html>
