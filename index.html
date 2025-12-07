@@ -152,7 +152,7 @@
             // visual feedback
             if (model.object3D) {
                 const originalScale = model.object3D.scale.clone();
-                model.object3D.scale.multiplyScalar(10);
+                model.object3D.scale.multiplyScalar(5);
                 setTimeout(() => {
                     model.object3D.scale.copy(originalScale);
                 }, 150);
@@ -686,12 +686,27 @@
                 const ob = obstacle.element.object3D.position;
                 const dx = Math.abs(p.x - ob.x);
                 const dz = Math.abs(p.z - ob.z);
-                
-                // Коллизия происходит только если динозавр на земле
-                if (dx < 0.25 && dz < 0.25 && isOnGround){
-                    endGame();
+                const dy = Math.abs(p.y - ob.y);
+
+                // Порог по горизонтали и вертикали — можно поправить под размеры твоих объектов
+                const HORIZ_THRESHOLD = 0.25;
+                const VERT_THRESHOLD = 0.6;
+
+                if (dx < HORIZ_THRESHOLD && dz < HORIZ_THRESHOLD && dy < VERT_THRESHOLD) {
+                    // визуальная подсветка столкнувшегося препятствия (опционально)
+                    try {
+                        if (obstacle.element.setAttribute) {
+                            obstacle.element.setAttribute('material', 'color:#B71C1C; roughness:0.9');
+                        }
+                    } catch (e) { /* ignore */ }
+
+                    // вызов окончания игры только один раз
+                    if (running) {
+                        endGame();
+                    }
                     break;
                 }
+
             }
     
             // Move coins and check collection
