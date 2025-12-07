@@ -13,7 +13,10 @@
              background:rgba(0,0,0,0.8);padding:14px;border-radius:10px}
 </style>
 <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+<!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/aframe/1.6.0/aframe.min.js"></script> -->
 <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@master/aframe/build/aframe-ar.js"></script>
+<!-- Using a specific stable version of AR.js
+<script src="https://cdn.jsdelivr.net/npm/ar.js@3.4.0/aframe/build/aframe-ar.min.js"></script> -->
 </head>
 <body>
 <div id="hud">Score: <span id="score">0</span></div>
@@ -44,178 +47,343 @@
 </a-scene>
 
 <script>
-(function(){
-  // DOM
-  const marker = document.getElementById('hiro');
-  const player = document.getElementById('player');
-  const model = document.getElementById('model');
-  const fallback = document.getElementById('fallback');
-  const obsContainer = document.getElementById('obstacles');
-  const scoreEl = document.getElementById('score');
-  const hint = document.getElementById('hint');
-  const gameOverEl = document.getElementById('game-over');
-  const finalEl = document.getElementById('final');
-  const retryBtn = document.getElementById('retry');
-
-  // game state
-  let markerVisible = false;
-  let running = false;
-  let jumping = false;
-  let isOnGround = true;
-  let vy = 0;
-  const GRAV = -0.018;
-  const JUMP_V = 0.45;
-  const baseY = 0.2;
-  let obstacles = [];
-  let spawnTimer = null;
-  let raf = null;
-  let score = 0;
-  const SPAWN_INTERVAL = 1200;
-  const OB_SPEED = 0.012;
-
-  // show model if available
-  const asset = document.getElementById('dino-model');
-  if (asset) asset.addEventListener('loaded', ()=>{ model.setAttribute('visible','true'); fallback.setAttribute('visible','false'); }, {once:true});
-
-  // marker events
-  marker.addEventListener('markerFound', ()=>{ markerVisible = true; hint.textContent = 'Marker found — Tap/SPACE to jump'; startGameIfNeeded(); });
-  marker.addEventListener('markerLost',  ()=>{ markerVisible = false; hint.textContent = 'Point camera at Hiro marker'; pauseGame(); });
-
-  // input
-  window.addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); doJump(); }});
-  window.addEventListener('touchstart', e => { e.preventDefault(); doJump(); }, {passive:false});
-
-  retryBtn.addEventListener('click', ()=>{ resetGame(); startGameIfNeeded(); });
-
-  // jump
-  function doJump(){
-    if (!running || !markerVisible || jumping || !isOnGround) return;
-    vy = JUMP_V;
-    jumping = true;
-    isOnGround = false;
-  }
-
-  // obstacle creation
-  function createObstacle(){
-    const id = 'o' + Date.now();
-    const el = document.createElement('a-box');
-    const h = 0.25 + Math.random()*0.6; // height
-    el.setAttribute('depth', 0.2);
-    el.setAttribute('height', h);
-    el.setAttribute('width', 0.2);
-    el.setAttribute('material','color:#8B4513');
-    // spawn to the right of player, z small random
-    const x = 0.9 + Math.random()*0.6;
-    const y = h/2;
-    const z = (Math.random()-0.5)*0.4;
-    el.setAttribute('position', `${x} ${y} ${z}`);
-    el.setAttribute('id', id);
-    obsContainer.appendChild(el);
-    obstacles.push(el);
-  }
-
-  // start/stop generation
-  function startSpawning(){
-    if (spawnTimer) return;
-    spawnTimer = setInterval(()=>{ if (running) createObstacle(); }, SPAWN_INTERVAL);
-  }
-  function stopSpawning(){ if (spawnTimer){ clearInterval(spawnTimer); spawnTimer = null; } }
-
-  // game loop
-  function loop(){
-    // physics for player
-    if (running && markerVisible){
-      // integrate
-      if (!isOnGround){
-        vy += GRAV;
-        let pos = player.object3D.position;
-        pos.y += vy;
-        // land
-        if (pos.y <= baseY){
-          pos.y = baseY;
-          vy = 0;
-          isOnGround = true;
-          jumping = false;
-        }
-        player.object3D.position.copy(pos);
+    (function(){
+      // DOM
+      const marker = document.getElementById('hiro');
+      const player = document.getElementById('player');
+      const model = document.getElementById('model');
+      const fallback = document.getElementById('fallback');
+      const obsContainer = document.getElementById('obstacles');
+      const scoreEl = document.getElementById('score');
+      const hint = document.getElementById('hint');
+      const gameOverEl = document.getElementById('game-over');
+      const finalEl = document.getElementById('final');
+      const retryBtn = document.getElementById('retry');
+      const world = document.getElementById('world');
+    
+      // game state
+      let markerVisible = false;
+      let running = false;
+      let jumping = false;
+      let isOnGround = true;
+      let vy = 0;
+      const GRAV = -0.018;
+      const JUMP_V = 0.45;
+      const baseY = 0.2;
+      let obstacles = [];
+      let spawnTimer = null;
+      let raf = null;
+      let score = 0;
+    
+      // new: coins array
+      let coins = [];
+    
+      // speeds / timings
+      const SPAWN_INTERVAL = 1200;
+      const OB_SPEED = 0.012; // obstacle speed (we will move left->right via +)
+      const COIN_SPEED = 0.009;
+      const MARKER_CHECK_INTERVAL = 60_000; // 1 minute
+    
+      // high score
+      let highScore = parseInt(localStorage.getItem('arDinoHigh')) || 0;
+    
+      // show model if available
+      const asset = document.getElementById('dino-model');
+      if (asset) asset.addEventListener('loaded', ()=>{ model.setAttribute('visible','true'); fallback.setAttribute('visible','false'); }, {once:true});
+    
+      // MARKER events
+      marker.addEventListener('markerFound', ()=>{ 
+        markerVisible = true; 
+        hint.textContent = 'Marker found — Tap/SPACE to jump'; 
+        // ensure ground plane aligned to marker (safety)
+        const plane = world.querySelector('a-plane');
+        if (plane) plane.setAttribute('rotation','-90 0 0');
+        startGameIfNeeded(); 
+      });
+    
+      marker.addEventListener('markerLost',  ()=>{ 
+        markerVisible = false; 
+        hint.textContent = 'Point camera at Hiro marker'; 
+        pauseGame(); 
+      });
+    
+      // input
+      window.addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); doJump(); }});
+      window.addEventListener('touchstart', e => { e.preventDefault(); doJump(); }, {passive:false});
+      retryBtn.addEventListener('click', ()=>{ resetGame(); startGameIfNeeded(); });
+    
+      // jump
+      function doJump(){
+        if (!running || !markerVisible || jumping || !isOnGround) return;
+        vy = JUMP_V;
+        jumping = true;
+        isOnGround = false;
       }
-
-      // move obstacles
-      for (let i = obstacles.length-1; i >=0; i--){
-        const ob = obstacles[i];
-        if (!ob || !ob.object3D) { obstacles.splice(i,1); continue; }
-        ob.object3D.position.x -= OB_SPEED;
-        // remove if passed
-        if (ob.object3D.position.x < -1.2){
-          // passed -> score
-          score += 10;
-          scoreEl.textContent = score;
-          if (ob.parentNode) ob.parentNode.removeChild(ob);
-          obstacles.splice(i,1);
-          continue;
-        }
-        // collision (simple): horizontal distance + vertical check
-        const p = player.object3D.position;
-        const dx = Math.abs(p.x - ob.object3D.position.x);
-        const dz = Math.abs(p.z - ob.object3D.position.z);
-        const vyPos = p.y;
-        if (dx < 0.25 && dz < 0.25 && vyPos <= (ob.object3D.position.y - ob.getAttribute('height')/2 + 0.05)){
-          // collided while on ground or low -> game over
-          endGame();
-          break;
+    
+      // ---- environment generation (road + forest) ----
+      function generateEnvironment(){
+        // remove previous extras if any
+        const old = world.querySelectorAll('.env');
+        old.forEach(n=> n.parentNode && n.parentNode.removeChild(n));
+    
+        // road strip (narrow plane)
+        const road = document.createElement('a-plane');
+        road.setAttribute('width','1.6');
+        road.setAttribute('height','2');
+        road.setAttribute('rotation','-90 0 0');
+        road.setAttribute('position','0 0.001 0');
+        road.setAttribute('material','color:#3b3b3b;opacity:0.5');
+        road.className = 'env';
+        world.appendChild(road);
+    
+        // trees (left and right)
+        for (let i=0;i<6;i++){
+          const tx = -0.9 + Math.random()*1.8;
+          const tz = -0.3 - Math.random()*1.6;
+          const trunk = document.createElement('a-cylinder');
+          trunk.setAttribute('height','0.4');
+          trunk.setAttribute('radius','0.05');
+          trunk.setAttribute('position', `${tx} 0.2 ${tz}`);
+          trunk.setAttribute('material','color:#5D4037');
+          trunk.className = 'env';
+          world.appendChild(trunk);
+    
+          const foliage = document.createElement('a-cone');
+          foliage.setAttribute('height','0.6');
+          foliage.setAttribute('radius-bottom','0.25');
+          foliage.setAttribute('position', `${tx} 0.5 ${tz}`);
+          foliage.setAttribute('material','color:#2E7D32');
+          foliage.className = 'env';
+          world.appendChild(foliage);
         }
       }
-    }
-
-    raf = requestAnimationFrame(loop);
-  }
-
-  function startGameIfNeeded(){
-    if (!markerVisible) return;
-    if (running) return;
-    running = true;
-    score = 0; scoreEl.textContent = score;
-    hint.style.display = 'block';
-    gameOverEl.style.display = 'none';
-    startSpawning();
-    if (!raf) loop();
-  }
-
-  function pauseGame(){
-    running = false;
-    stopSpawning();
-    if (raf){ cancelAnimationFrame(raf); raf = null; }
-  }
-
-  function endGame(){
-    running = false;
-    stopSpawning();
-    if (raf){ cancelAnimationFrame(raf); raf = null; }
-    gameOverEl.style.display = 'block';
-    finalEl.textContent = 'Score: ' + score;
-  }
-
-  function resetGame(){
-    // clear obstacles
-    obstacles.forEach(o => { if (o.parentNode) o.parentNode.removeChild(o); });
-    obstacles = [];
-    // reset player
-    if (player && player.object3D) player.object3D.position.set(0, baseY, 0);
-    vy = 0; jumping = false; isOnGround = true;
-    score = 0; scoreEl.textContent = score;
-    gameOverEl.style.display = 'none';
-  }
-
-  // safety: ensure player.object3D exists after scene load
-  document.querySelector('a-scene').addEventListener('loaded', ()=> {
-    if (player && player.object3D) player.object3D.position.set(0, baseY, 0);
-  });
-
-  // stop everything when page hidden
-  document.addEventListener('visibilitychange', ()=> { if (document.hidden) pauseGame(); });
-
-  // init minimal: allow spawn when marker found
-})();
-</script>
+    
+      // ---- obstacle + coin creation ----
+      function createObstacle(){
+        const id = 'o' + Date.now();
+        const el = document.createElement('a-box');
+        const h = 0.25 + Math.random()*0.6; // height
+        el.setAttribute('depth', 0.2);
+        el.setAttribute('height', h);
+        el.setAttribute('width', 0.2);
+        el.setAttribute('material','color:#8B4513');
+        // spawn on LEFT of marker (so it moves to the RIGHT)
+        const x = -0.9;
+        const y = h/2;
+        const z = (Math.random()-0.5)*0.4;
+        el.setAttribute('position', `${x} ${y} ${z}`);
+        el.setAttribute('id', id);
+        obsContainer.appendChild(el);
+        obstacles.push(el);
+      }
+    
+      function createCoin(){
+        const id = 'c' + Date.now();
+        const el = document.createElement('a-cylinder');
+        el.setAttribute('radius','0.06');
+        el.setAttribute('height','0.03');
+        el.setAttribute('material','color:#FFD700;metalness:1;roughness:0.2');
+        // spawn left
+        const x = -0.9;
+        const y = 0.35 + Math.random()*0.6;
+        const z = (Math.random()-0.5)*0.4;
+        el.setAttribute('position', `${x} ${y} ${z}`);
+        el.setAttribute('rotation','90 0 0');
+        el.setAttribute('id', id);
+        el.className = 'coin';
+        obsContainer.parentNode.querySelector('#obstacles') // ensure placement
+        obsContainer.appendChild(el);
+        coins.push(el);
+      }
+    
+      // start/stop generation
+      function startSpawning(){
+        if (spawnTimer) return;
+        spawnTimer = setInterval(()=>{ if (running) {
+          // alternate between obstacle and coin sometimes
+          if (Math.random() < 0.7) createObstacle(); else createCoin();
+        } }, SPAWN_INTERVAL);
+      }
+      function stopSpawning(){ if (spawnTimer){ clearInterval(spawnTimer); spawnTimer = null; } }
+    
+      // ---- main loop ----
+      let startTime = performance.now();
+      function loop(now){
+        // smooth time
+        const t = (now||performance.now()) - startTime;
+    
+        // physics for player
+        if (running && markerVisible){
+          // integrate gravity
+          if (!isOnGround){
+            vy += GRAV;
+            let pos = player.object3D.position;
+            pos.y += vy;
+            // land
+            if (pos.y <= baseY){
+              pos.y = baseY;
+              vy = 0;
+              isOnGround = true;
+              jumping = false;
+            }
+            player.object3D.position.copy(pos);
+          }
+    
+          // small left->right player oscillation to give impression of forward movement
+          if (player && player.object3D){
+            const px = -0.35 + Math.sin(now/900) * 0.35; // oscillates between approx -0.7 and 0
+            player.object3D.position.x = px;
+          }
+    
+          // move obstacles left->right (x increases)
+          for (let i = obstacles.length-1; i >=0; i--){
+            const ob = obstacles[i];
+            if (!ob || !ob.object3D) { obstacles.splice(i,1); continue; }
+            ob.object3D.position.x += OB_SPEED;
+            // remove if passed
+            if (ob.object3D.position.x > 1.2){
+              // passed -> score
+              score += 10;
+              updateScore();
+              if (ob.parentNode) ob.parentNode.removeChild(ob);
+              obstacles.splice(i,1);
+              continue;
+            }
+            // collision (simple): horizontal + z + vertical check
+            const p = player.object3D.position;
+            const dx = Math.abs(p.x - ob.object3D.position.x);
+            const dz = Math.abs(p.z - ob.object3D.position.z);
+            const playerFeet = p.y;
+            const obTop = ob.object3D.position.y + (ob.getAttribute('height')/2 || 0);
+            if (dx < 0.25 && dz < 0.25 && playerFeet <= (obTop - 0.05)){
+              // collided -> game over (dino dead)
+              endGame();
+              break;
+            }
+          }
+    
+          // move coins and collection check
+          for (let i = coins.length-1; i>=0; i--){
+            const c = coins[i];
+            if (!c || !c.object3D) { coins.splice(i,1); continue; }
+            c.object3D.position.x += COIN_SPEED;
+            // rotate coin visually
+            c.object3D.rotation.y += 0.2;
+            if (c.object3D.position.x > 1.2){
+              if (c.parentNode) c.parentNode.removeChild(c);
+              coins.splice(i,1);
+              continue;
+            }
+            // collection
+            const p = player.object3D.position;
+            const dx = Math.abs(p.x - c.object3D.position.x);
+            const dz = Math.abs(p.z - c.object3D.position.z);
+            if (dx < 0.2 && dz < 0.2 && Math.abs(p.y - c.object3D.position.y) < 0.5){
+              // collected
+              score += 50;
+              updateScore();
+              // small visual: pop
+              if (c.parentNode) c.parentNode.removeChild(c);
+              coins.splice(i,1);
+            }
+          }
+        }
+        raf = requestAnimationFrame(loop);
+      }
+    
+      function startGameIfNeeded(){
+        if (!markerVisible) return;
+        if (running) return;
+        running = true;
+        score = 0; updateScore();
+        hint.style.display = 'block';
+        gameOverEl.style.display = 'none';
+        // prepare environment
+        resetPlayer();
+        generateEnvironment();
+        startSpawning();
+        if (!raf) {
+          startTime = performance.now();
+          loop(startTime);
+        }
+      }
+    
+      function pauseGame(){
+        running = false;
+        stopSpawning();
+        if (raf){ cancelAnimationFrame(raf); raf = null; }
+      }
+    
+      // ---- game over / reset / restore ----
+      function endGame(){
+        running = false;
+        stopSpawning();
+        if (raf){ cancelAnimationFrame(raf); raf = null; }
+        gameOverEl.style.display = 'block';
+        finalEl.textContent = 'Score: ' + score;
+        // save high score
+        if (score > highScore){
+          highScore = score;
+          localStorage.setItem('arDinoHigh', highScore);
+        }
+        // visual restore: set model visible to false for a brief 'death' flash
+        if (model) model.setAttribute('visible','false');
+        if (fallback) fallback.setAttribute('material','color:#B71C1C'); // red to show damage
+        setTimeout(()=>{ // restore appearance after short time
+          if (model) model.setAttribute('visible','true');
+          if (fallback) fallback.setAttribute('material','color:#4CAF50');
+        }, 800);
+      }
+    
+      function resetGame(){
+        // clear obstacles & coins
+        obstacles.forEach(o => { if (o.parentNode) o.parentNode.removeChild(o); });
+        coins.forEach(c => { if (c.parentNode) c.parentNode.removeChild(c); });
+        obstacles = [];
+        coins = [];
+        // reset player
+        resetPlayer();
+        vy = 0; jumping = false; isOnGround = true;
+        score = 0; updateScore();
+        gameOverEl.style.display = 'none';
+      }
+    
+      function resetPlayer(){
+        if (player && player.object3D) player.object3D.position.set(-0.35, baseY, 0);
+        // ensure model visibility fallback
+        if (model) model.setAttribute('visible','true');
+        if (fallback) fallback.setAttribute('visible','true');
+      }
+    
+      function updateScore(){
+        scoreEl.textContent = score + ' (BEST: ' + highScore + ')';
+      }
+    
+      // safety: ensure player.object3D exists after scene load
+      document.querySelector('a-scene').addEventListener('loaded', ()=> {
+        if (player && player.object3D) player.object3D.position.set(-0.35, baseY, 0);
+        generateEnvironment();
+        updateScore();
+      });
+    
+      // stop everything when page hidden
+      document.addEventListener('visibilitychange', ()=> { if (document.hidden) pauseGame(); });
+    
+      // init minimal: allow spawn when marker found
+      // ---- MARKER PRESENCE CHECK every minute ----
+      setInterval(()=> {
+        // extra check: if marker hasn't been detected for this minute, ensure UI shows lost status
+        if (!markerVisible){
+          hint.textContent = 'Marker not detected (auto-check) — Point camera at Hiro marker';
+          pauseGame();
+        } else {
+          // if marker visible but not running, keep hint encouraging start
+          if (!running) hint.textContent = 'Marker found — Tap/SPACE to jump';
+        }
+      }, MARKER_CHECK_INTERVAL);
+    
+    })();
+    </script>
+    
 </body>
 </html>
