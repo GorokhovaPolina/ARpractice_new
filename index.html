@@ -371,17 +371,24 @@
     
       // init minimal: allow spawn when marker found
       // ---- MARKER PRESENCE CHECK every minute ----
-      setInterval(()=> {
-        // extra check: if marker hasn't been detected for this minute, ensure UI shows lost status
-        if (!markerVisible){
-          hint.textContent = 'Marker not detected (auto-check) — Point camera at Hiro marker';
-          pauseGame();
-        } else {
-          // if marker visible but not running, keep hint encouraging start
-          if (!running) hint.textContent = 'Marker found — Tap/SPACE to jump';
-        }
-      }, MARKER_CHECK_INTERVAL);
-    
+      // --- Adaptive marker check: 
+      // if marker is visible → check once per minute
+      // if not visible → check every second until visible again
+      (function adaptiveMarkerCheck(){
+      function check(){
+         if (!markerVisible){
+            // marker lost → check every second
+            hint.textContent = 'Marker not detected — Point camera at Hiro marker';
+            pauseGame();
+            setTimeout(check, 1000); // 1 second retry
+         } else {
+         // marker visible → next check in 1 minute
+         if (!running) hint.textContent = 'Marker found — Tap/SPACE to jump';
+         setTimeout(check, 60000); // 1 minute
+         }
+      }
+      check();
+      })();
     })();
     </script>
     
